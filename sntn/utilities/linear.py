@@ -6,7 +6,7 @@ import numpy as np
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
 # Load internal modules
-from utilities.utils import check_all_is_type
+from utilities.utils import check_all_is_type, check_all_pos
 
 class ols():
     """Ordinary least squares: model class wrapper
@@ -31,7 +31,8 @@ class ols():
     def __init__(self, y:np.ndarray, x:np.ndarray, sigma2:None or float=None, has_int:bool=True, alpha:float=0.05) -> True:
         # Input checks
         if sigma2 is not None:
-            check_all_is_type(float, )
+            check_all_is_type(sigma2, [float, int])
+            check_all_pos(sigma2, strict=True)
         # Fit model with sklearn
         self.linreg = LinearRegression(fit_intercept=has_int)
         self.linreg.fit(X=x,y=y)
@@ -59,7 +60,7 @@ class ols():
         self.ub = self.bhat + cv*self.se
 
 
-def dgp_yX(n:int, p:int, s:int or None=None, b0:float or int=1, intercept:float or int=0, snr:float or int=1, seed:int=1, normalize:bool=True) -> tuple[np.ndarray, np.ndarray]:
+def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndarray=1, intercept:float or int=0, snr:float or int=1, seed:int=1, normalize:bool=True) -> tuple[np.ndarray, np.ndarray]:
     """Data generating process for simple gaussian-noise regression, where the columns are x are statistically independent
     
     Parameters
@@ -67,9 +68,9 @@ def dgp_yX(n:int, p:int, s:int or None=None, b0:float or int=1, intercept:float 
     n:                  Number of samples
     p:                  Size of the design matrix
     s:                  Number of the non-zero coefficients
-    b0:                 .....
-    intercept:          ....
-    snr:                Signal to nosie ratio ... (default=1)
+    beta:               The coefficient that will get applied for every one of the first s
+    intercept:          Whether an intercept should be added to X'beta
+    snr:                Signal to nosie ratio, this will automatically lead to a certain sigma2 (default=1)
     seed:               Reproducability seed (default=1)
     normalize:          Whether the design matrix should be normalized after creation (default=1)
 
@@ -78,11 +79,13 @@ def dgp_yX(n:int, p:int, s:int or None=None, b0:float or int=1, intercept:float 
     An (x, y) tuple where x is a (n,p) design matrix, and y is an (n,) vector
     """
     # Input checks
-    check_pos(strict=True, n, p, s, snr, seed)
+    check_all_pos(n, p, snr, strict=True)
+    check_all_pos(s, seed, strict=False)
+    assert isinstance(normalize, bool), 'normalize needs to be a boolean'
     assert s <= p, 's cannot be larger than p'
-
     # Set up parameters
-    beta = np.repeat(b0, p)
+    if not isinstance(beta, np.ndarray):
+        beta = np.repeat(beta, p)
     var_exp = np.sum(beta**2)
     sig2 = 1
     if var_exp > 0:
@@ -98,42 +101,5 @@ def dgp_yX(n:int, p:int, s:int or None=None, b0:float or int=1, intercept:float 
     return y, x
 
 
-class two_stage():
-    """Wrapper for performing a two-stage regerssio problem"""
-    def __init__(self, n, m, gamma, alpha, pool=True, student=True):
-        # Assign
-        assert (n > 1) and (m >= 1) and (gamma > 0) & (gamma < 1)
-        self.n, self.m, self.gamma = n, m, gamma
-        self.alpha, self.pool = alpha, pool
-
-        # Calculate degres of freedom
-        self.dof_S, self.dof_T = n - 1, m - 1
-        if self.pool:
-            self.dof_T = n + m - 1
-        if student:
-            self.phi_inv = t(df=self.dof_S).ppf(1-gamma)
-        else:
-            self.phi_inv = norm.ppf(1-gamma)
-        mn_ratio = m / n
-        mu_2stage = np.array([0, -np.sqrt(mn_ratio)*self.phi_inv])
-        tau_2stage = np.sqrt([1, mn_ratio])
-        self.H0 = NTS(mu=mu_2stage,tau=tau_2stage, a=0, b=np.infty)
-        self.HA = NTS(mu=mu_2stage,tau=tau_2stage, a=-np.infty, b=0)
-        self.t_alpha = self.H0.ppf(alpha)
-        self.power = self.HA.cdf(self.t_alpha)
-
-    # self = dist_2s; nsim=100000; delta=2; sigma2=4; seed=None
-    def rvs(self, nsim, delta, sigma2, seed=None):
-        if seed is None:
-            seed = nsim
-        np.random.seed(seed)
-        delta1 = delta + np.sqrt(sigma2/self.n)*np.random.randn(nsim)
-        delta2 = delta + np.sqrt(sigma2/self.m)*np.random.randn(nsim)
-        sigS = np.sqrt(sigma2*chi2(df=self.dof_S).rvs(nsim)/self.dof_S)
-        sigT = np.sqrt(sigma2*chi2(df=self.dof_T).rvs(nsim)/self.dof_T)
-        delta0 = delta1 + (sigS/np.sqrt(self.n))*self.phi_inv
-        shat = (delta2 - delta0)/(sigT/np.sqrt(self.m))
-        df = pd.DataFrame({'shat':shat, 'd0hat':delta0})
-        return df
 
 

@@ -67,4 +67,13 @@ def has_assertion_error(function:Callable, *args, **kwargs) -> bool:
     return has_error
 
 
+def check_all_pos(*args, strict:bool=False) -> None:
+    """Checks that a list of ints or float is strictly positive"""
+    lb = 0
+    if strict:
+        lb += 1e-16
+    if len(args) > 0:
+        for a in args:
+            assert a >= lb, f'{a} needs to be >= {lb}'
+
 
