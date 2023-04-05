@@ -34,7 +34,7 @@ for mu1 in mu1_seq:
 
 # Contributing
 
-For testing, please set up the sntn conda environment: `conda env create -f env.yml`, and check that all unittests work as expected. 
+For testing, please set up the sntn conda environment: `conda env create -f env.yml`, and check that all unittests work as expected: `python3 -m pytest tests`. If any package changes are made, please run `conda env export > env.yml` as part of any pull request. 
 
 ## Bivariate normal approximation methods
 
