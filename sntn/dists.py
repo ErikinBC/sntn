@@ -62,7 +62,9 @@ class tnorm():
     def rvs(self, n, seed=None):
         """Wrapper for scipy.stats.truncnorm(...).rvs()"""
         # When sampling it is [num_sample,*dims of parameters]
-        samp_shape = (n,) + self.mu.shape
+        samp_shape = (n,)
+        if self.mu.shape != (1,):  # If everything is a float, no need for a second dimension
+            samp_shape += self.mu.shape
         return self.dist.rvs(samp_shape, random_state=seed)
 
 
