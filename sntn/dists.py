@@ -10,7 +10,7 @@ from sntn.utilities.utils import rvec, cvec, vprint, broastcast_max_shape
 
 
 class tnorm():
-    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int):
+    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
         """
         Main model class for the truncated normal distribution
 
@@ -23,25 +23,29 @@ class tnorm():
 
         Attributes
         ----------
-        ....
+        mu:                 Array of means
+        sigma:              Array of standard deviations
+        a:                  Array of lowerbounds
+        b:                  Array of upperbounds
+        alpha:              Array of z-score lowerbounds
+        beta:               Array of z-score upperbounds
+        dist:               The scipy truncnorm
 
         Methods
         -------
-        ...
-
+        ....
         """
-        # di2 = {k: len(v) if isinstance(v,np.ndarray) | isinstance(v,list) 
-        #         else 1 for k, v in di.items()}
-        # self.p = max(list(di2.values()))
-        # for k in di:
-        #     if di2[k] == 1:
-        #         di[k] = np.repeat(di[k], self.p)
-        #     else:
-        #         di[k] = np.array(di[k])
-        # self.sig2, self.a, self.b = di['sig2'], di['a'], di['b']
-        # sig = np.sqrt(di['sig2'])
-        # alpha, beta = (di['a']-di['mu'])/sig, (di['b']-di['mu'])/sig
-        self.dist = truncnorm()#(loc=di['mu'], scale=sig, a=alpha, b=beta)
+        # Input checks and broadcasting
+        self.mu, sigma2, self.a, self.b = broastcast_max_shape(mu, sigma2, a, b)
+        assert np.all(self.a < self.b), 'a needs to be < b'
+        assert np.all(sigma2 > 0), 'sigma2 needs to be > 0'
+        self.sigma = np.sqrt(sigma2)
+        self.alpha = (self.a - self.mu) / self.sigma
+        self.beta = (self.b - self.mu) / self.sigma
+        # Calculate the dimension size
+        self.param_shape = self.mu.shape
+        # Initialize the distribution
+        self.dist = truncnorm(loc=self.mu, scale=self.sigma, a=self.alpha, b=self.beta)
 
     def cdf(self, x):
         """Wrapper for scipy.stats.truncnorm(...).cdf()"""
@@ -57,7 +61,9 @@ class tnorm():
 
     def rvs(self, n, seed=None):
         """Wrapper for scipy.stats.truncnorm(...).rvs()"""
-        return self.dist.rvs(n, random_state=seed)
+        # When sampling it is [num_sample,*dims of parameters]
+        samp_shape = (n,) + self.mu.shape
+        return self.dist.rvs(samp_shape, random_state=seed)
 
 
     def get_CI(self, x, gamma:float=0.05, lb:int or float=-1000, ub:int or float=10, nline:int=25, tol:float=1e-2, imax:int=10, verbose:bool=False):

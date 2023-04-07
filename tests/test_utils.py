@@ -1,6 +1,7 @@
 """
-Test utilities functions: 
-python3 -m tests.test_utils ... or ...
+Test utilities functions
+------------------------
+python3 -m tests.test_utils
 python3 -m pytest tests/test_utils.py
 """
 
