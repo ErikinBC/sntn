@@ -118,8 +118,38 @@ class tnorm():
         return self.dist.rvs(samp_shape, random_state=seed)
 
 
-    # approach='root';verbose=True;alpha=0.05;kwargs={}
-    def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, verbose:bool=False, **kwargs):
+    def _err_cdf(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
+        """
+        Internal method to feed into the root findings/minimizers. Assumes that sigma/a/b are constant
+        
+        Parameters
+        ----------
+        mu:             A candidate array of means (what is being optimized over)
+        x:              The observed data points
+        alpha:          The desired CDF level
+        """
+        a_trans = (self.a-mu)/self.sigma
+        b_trans = (self.b-mu)/self.sigma
+        dist = truncnorm(loc=mu, scale=self.sigma, a=a_trans, b=b_trans)
+        err = dist.cdf(x) - alpha
+        return err
+
+    def _err_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
+        """
+        Call _err_cdf and returns the square of the results
+        """
+        err2 = np.sum(self._err_cdf(mu, x, alpha)**2)
+        return err2
+
+    def _derr_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
+        """
+        Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))
+        """
+        term1 = 2*self._err_cdf(mu, x, alpha)
+        # term2 = 1  # Will require hand-derivation
+
+
+    def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
         """
         Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
         Calculate the confidence interval for a series of points (x)
@@ -128,86 +158,65 @@ class tnorm():
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
         approach:           A total of four approaches have been implemented to calculate the CIs (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar})
-
+        alpha:              Type-I error for the CIs (default=0.05)
+        mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI?
+        mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI?
         kwargs:             Named arguments which will be passed into the scipy.optims
 
         Returns
         -------
+        An ({x.shape,mu.shape},2) array for the lower/upper bound. Shape be different than x if x gets broadcasted by the existing parameters
         """
+        from scipy.stats import norm
         from scipy.optimize import root, minimize_scalar, minimize, root_scalar
         # Input checks
         valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
         assert approach in valid_approaches, f'approach needs to be one of {valid_approaches}'
-        
         # Try to broadcast x to match underlying parameters
-        x, _ = broastcast_max_shape(x, self.mu)
-        # Define the optimization function
-        from scipy import optimize
-        optim_fun = getattr(optimize, approach)
+        # Guess some lower/upper bounds
+        c_alpha = norm.ppf(alpha/2)
+        x0_lb, x0_ub = self.mu + c_alpha, self.mu - c_alpha
+        x, mu, x0_lb, x0_ub = broastcast_max_shape(x, self.mu, x0_lb, x0_ub)
         
-        if approach == 'root_scale':
-            print('root_scaler')
-        elif approach == 'minimize_scaler':
-            print('minimize_scaler')
+        
+        if approach == 'root_scalar':
+            # ---- Approach #1: Point-wise root finding ---- #
+            ci_lb, ci_ub = mu*np.nan, mu*np.nan
+            for kk in np.ndindex(x.shape): # Loop over all element points
+                # Define dict for each
+                x_kk = x[kk]  #, mu_kk, mu[kk]
+                di_lb = {**{'f':self._err_cdf, 'args':(x_kk, 1-alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
+                di_ub = di_lb.copy()
+                di_ub['args'] = (x_kk, alpha/2)
+                # di_ub = {**{'f':self._err_cdf, 'args':(x_kk, alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
+                lb_kk = root_scalar(**di_lb).root
+                ub_kk = root_scalar(**di_ub).root
+                ci_lb[kk] = lb_kk
+                ci_ub[kk] = ub_kk            
+        elif approach == 'minimize_scalar':
+            # ---- Approach #2: Point-wise scaler-wise ---- #
+            ci_lb, ci_ub = mu*np.nan, mu*np.nan
+            di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
+            for kk in np.ndindex(x.shape): # Loop over all element points
+                x_kk = x[kk]
+                di_lb = {**di_base, **{'args':(x_kk, 1-alpha/2)}, **kwargs}
+                di_ub = {**di_base, **{'args':(x_kk, alpha/2)}, **kwargs}
+                lb_kk = minimize_scalar(**di_lb).x
+                ub_kk = minimize_scalar(**di_ub).x
+                ci_lb[kk] = lb_kk
+                ci_ub[kk] = ub_kk
         elif approach == 'minimize':
             print('minimize')
+            di_base = {**{'fun':self._err_cdf2, 'x0':mu},**kwargs}
+            ci_lb = minimize(**{**di_base, **{'args':(x, 1-alpha/2)}}).x
+            ci_ub = minimize(**{**di_base, **{'args':(x, alpha/2)}}).x
         else:
             print('root')
-
-        # Run optimize
-        if len(kwargs) > 0:
-            res = optim_fun(1, **kwargs)
-        else:
-            res = optim_fun(1)
-        
-        
-
-
-    #     k = max(self.p, x.shape[1])
-    #     # Initialize
-    #     mu_seq = np.round(np.sinh(np.linspace(np.repeat(np.arcsinh(lb),k), 
-    #         np.repeat(np.arcsinh(ub),k),nline)),5)
-    #     q_seq = np.zeros(mu_seq.shape)
-    #     q_err = q_seq.copy()
-    #     cidx = list(range(k))
-    #     iactive = cidx.copy()
-    #     pidx = cidx.copy()
-    #     j, aerr = 0, 1
-    #     while (j<=imax) & (len(iactive)>0):
-    #         j += 1
-    #         vprint('------- %i -------' % j, verbose)
-    #         # Calculate quantile range
-    #         mus = mu_seq[:,iactive]
-    #         if len(iactive) == 1:
-    #             mus = mus.flatten()
-    #         if self.p == 1:
-    #             pidx = np.repeat(0, len(iactive))
-    #         elif len(iactive)==1:
-    #             pidx = iactive
-    #         else:
-    #             pidx = iactive
-    #         qs = tnorm(mus, self.sig2[pidx], self.a[pidx], self.b[pidx]).ppf(gamma)
-    #         if len(qs.shape) == 1:
-    #             qs = cvec(qs)
-    #         q_seq[:,iactive] = qs
-    #         tmp_err = q_seq - x
-    #         q_err[:,iactive] = tmp_err[:,iactive]
-    #         istar = np.argmin(q_err**2,0)
-    #         q_star = q_err[istar, cidx]
-    #         mu_star = mu_seq[istar,cidx]
-    #         idx_edge = (mu_star == lb) | (mu_star == ub)
-    #         aerr = 100*np.abs(q_star)
-    #         if len(aerr[~idx_edge]) > 0:
-    #             vprint('Largest error: %0.4f' % max(aerr[~idx_edge]),verbose)
-    #         idx_tol = aerr < tol
-    #         iactive = np.where(~(idx_tol | idx_edge))[0]
-    #         # Get new range
-    #         if len(iactive) > 0:
-    #             new_mu = np.linspace(mu_seq[np.maximum(0,istar-1),cidx],
-    #                                 mu_seq[np.minimum(istar+1,nline-1),cidx],nline)
-    #             mu_seq[:,iactive] = new_mu[:,iactive]
-    #     mu_star = mu_seq[istar, cidx]
-    #     # tnorm(mu=mu_star, sig2=self.sig2, a=self.a, b=self.b).ppf(gamma)
-    #     return mu_star
-
-
+            # Try to solve the lowerbound
+            di_lb = {**{'fun':self._err_cdf, 'x0':x0_lb, 'args':(x, 1-alpha/2)},**kwargs}
+            di_ub = {**{'fun':self._err_cdf, 'x0':x0_ub, 'args':(x, alpha/2)},**kwargs}
+            ci_lb = root(**di_lb).x
+            ci_ub = root(**di_ub).x
+        # Return values
+        mat = np.c_[ci_lb, ci_ub]
+        return mat 

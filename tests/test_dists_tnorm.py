@@ -86,10 +86,39 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-def test_tnorm_CIs() -> None:
+def test_tnorm_CIs(n:int=1, ndraw:int=10) -> None:
     """Check that the confidence interval is working as expected"""
-    1
-    #breakpoint()
+    # Generate data
+    mu, sigma2, a, b = gen_params((n,), seed)
+    dist = tnorm(mu, sigma2, a, b)
+    # Generate data
+    x = dist.rvs(ndraw, seed)
+
+    # # (i) "root_scalar" apprach
+    # methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder', 'toms748', 'newton', 'secant', 'halley']
+    # for method in methods_root_scalar:
+    #     print(f'Testing method {method} for root_scalar')
+    #     res = dist.get_CI(x=x, approach='root_scalar', method=method)
+
+    # # (ii) "minimizer_scalar" appraoch
+    # methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
+    # for method in methods_minimize_scalar:
+    #     print(f'Testing method {method} for minimize_scalar')
+        # res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+
+    # (iii) "minimize" approach
+    methods_minimize = ['Nelder-Mead', 'Powell', 'COBYLA']
+    for method in methods_minimize:
+        print(f'Testing method {method} for minimize')
+        res = dist.get_CI(x=x, approach='minimize', method=method)
+    
+    # # (iv) Check "root" approach
+    # methods_root = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
+    # for method in methods_root:
+    #     print(f'Testing method {method} for root')
+    #     res = dist.get_CI(x=x, approach='root', method=method)
+
+
 
     
 
