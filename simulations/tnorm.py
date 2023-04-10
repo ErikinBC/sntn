@@ -1,7 +1,11 @@
 """
-Shows that that ML/MoM estimator does poorly when mu is outside of the support
+Simulations (analyses) for the tnorm class:
 
-python3 -m simulations.tnorm_fit
+i) Which solvers should be considered for further testing?
+ii) Which solvers get the right coverage and which is the fastest?
+iii) Does the built in "fit" method work?
+
+python3 -m simulations.tnorm
 """
 
 # External
@@ -11,8 +15,48 @@ import pandas as pd
 import plotnine as pn
 from time import time
 # Internal
-from parameters import dir_figures
 from sntn.dists import tnorm
+from sntn.utilities.utils import pseudo_log10
+from parameters import dir_figures, dir_simulations
+
+
+################################
+# ---- (i) SCREEN SOLVERS ---- #
+
+# Answer: Loading the unittests, we find...
+
+# Load the data generated from test_dist_tnorm.py
+di_bound = {'lb':'Lower-bound', 'ub':'Upper-bound'}
+res_all = pd.read_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'))
+mapdi = res_all.groupby('num').apply(lambda x: x['color'].unique()[0]).to_dict()
+# Screen for only "reasonable" candidates
+
+
+
+import plotnine as pn
+from parameters import dir_figures
+posd = pn.position_dodge(0.5)
+# .query('method!="Bounded"')
+gg = (pn.ggplot(res_all, pn.aes(x='idx',y='value',color='method',shape='method')) + 
+    pn.theme_bw() + pn.labs(y='Parameter bound',x='Random draw') + 
+    pn.geom_point(position=posd,size=2) + 
+    pn.facet_grid('bound ~ approach',labeller=lambda x: di_bound.get(x, x)) + 
+    pn.scale_color_discrete(name='Method') + 
+    pn.scale_y_continuous(trans=pseudo_log10) + 
+    pn.scale_shape_manual(name='Method',values=[f'${k}$' for k in mapdi]))
+gg.save(os.path.join(dir_figures, 'dist_tnorm_approach_method.png'),height=6,width=10)
+
+
+##########################################
+# ---- (ii) SOLVER COVERAGE/RUNTIME ---- #
+
+# Answer: ....
+
+
+###################################
+# ---- (iii) SCIPY.DISTS.FIT ---- #
+
+# Answer: Does not work well
 
 # Set up simulation parameters
 nsim = 25

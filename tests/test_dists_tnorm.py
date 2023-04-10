@@ -2,15 +2,18 @@
 Make sure truncated normal wrapper (tnorm) has expected properties to some reasonable tolerance
 
 python3 -m tests.test_dists_tnorm
-python3 -m pytest tests/test_dists_tnorm.py
+python3 -m pytest tests/test_dists_tnorm.py -s
 """
 
+# External
+import os
 import pytest
 import numpy as np
+import pandas as pd
 from scipy.stats import norm, kstest
 # Internal
-from parameters import seed
 from sntn.dists import tnorm
+from parameters import seed, dir_simulations
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generates TN parameters"""
@@ -86,7 +89,7 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-def test_tnorm_CIs(n:int=1, ndraw:int=10) -> None:
+def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
     """Check that the confidence interval is working as expected"""
     # Generate data
     mu, sigma2, a, b = gen_params((n,), seed)
@@ -94,32 +97,59 @@ def test_tnorm_CIs(n:int=1, ndraw:int=10) -> None:
     # Generate data
     x = dist.rvs(ndraw, seed)
 
-    # # (i) "root_scalar" apprach
-    # methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder', 'toms748', 'newton', 'secant', 'halley']
-    # for method in methods_root_scalar:
-    #     print(f'Testing method {method} for root_scalar')
-    #     res = dist.get_CI(x=x, approach='root_scalar', method=method)
+    # (i) "root_scalar" apprach ('newton', 'secant', 'halley' require gradient so are ignored for now)
+    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748']
+    holder_root_scalar = []
+    for method in methods_root_scalar:
+        print(f'Testing method {method} for root_scalar')
+        res = dist.get_CI(x=x, approach='root_scalar', method=method)
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_root_scalar.append(res)
+    res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
 
-    # # (ii) "minimizer_scalar" appraoch
-    # methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
-    # for method in methods_minimize_scalar:
-    #     print(f'Testing method {method} for minimize_scalar')
-        # res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+    # (ii) "minimizer_scalar" appraoch
+    methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
+    holder_minimize_scalar = []
+    for method in methods_minimize_scalar:
+        print(f'Testing method {method} for minimize_scalar')
+        res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_minimize_scalar.append(res)
+    res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
     # (iii) "minimize" approach
     methods_minimize = ['Nelder-Mead', 'Powell', 'COBYLA']
+    holder_minimize = []
     for method in methods_minimize:
         print(f'Testing method {method} for minimize')
         res = dist.get_CI(x=x, approach='minimize', method=method)
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_minimize.append(res)
+    res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
+
+    # (iv) Check "root" approach
+    methods_root = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
+    holder_root = []
+    for method in methods_root:
+        print(f'Testing method {method} for root')
+        res = dist.get_CI(x=x, approach='root', method=method)
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_root.append(res)
+    res_root = pd.concat(holder_minimize).assign(approach='root')
     
-    # # (iv) Check "root" approach
-    # methods_root = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
-    # for method in methods_root:
-    #     print(f'Testing method {method} for root')
-    #     res = dist.get_CI(x=x, approach='root', method=method)
+    # Combine and save results
+    res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
+    res_all = res_all.rename_axis('idx').melt(['method','approach'],['lb','ub'],ignore_index=False,var_name='bound').reset_index()
+    res_all['idx'] = pd.Categorical(res_all['idx'] + 1, range(1,ndraw+1))
+    res_all = res_all.assign(num=lambda x: (pd.Categorical(x['method']).codes+1))
+    res_all = res_all.assign(color = lambda x: x['num'].astype(str) + '.' + x['method'])
+    # Add on the true parameters
+    assert len(mu) == 1, 'Cannot assign if value > 1'
+    res_all = res_all.assign(mu0=mu[0])
+    res_all.to_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'),index=False)
 
 
-
+ 
     
 
 
@@ -129,6 +159,6 @@ if __name__ == "__main__":
     #     test_tnorm_rvs(param)
     # test_tnorm_cdf()
     # test_tnorm_ppf()
-    test_tnorm_CIs()
+    test_tnorm_CI()
 
     print('~~~ The test_dists.py script worked successfully ~~~')

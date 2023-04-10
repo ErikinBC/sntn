@@ -134,6 +134,10 @@ class tnorm():
         err = dist.cdf(x) - alpha
         return err
 
+    def _err_cdf0(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> float:
+        """Returns the 1, array as a float"""
+        return float(self._err_cdf(mu, x, alpha))
+
     def _err_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
         """
         Call _err_cdf and returns the square of the results
@@ -178,14 +182,13 @@ class tnorm():
         x0_lb, x0_ub = self.mu + c_alpha, self.mu - c_alpha
         x, mu, x0_lb, x0_ub = broastcast_max_shape(x, self.mu, x0_lb, x0_ub)
         
-        
         if approach == 'root_scalar':
             # ---- Approach #1: Point-wise root finding ---- #
             ci_lb, ci_ub = mu*np.nan, mu*np.nan
             for kk in np.ndindex(x.shape): # Loop over all element points
                 # Define dict for each
                 x_kk = x[kk]  #, mu_kk, mu[kk]
-                di_lb = {**{'f':self._err_cdf, 'args':(x_kk, 1-alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
+                di_lb = {**{'f':self._err_cdf0, 'args':(x_kk, 1-alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
                 di_ub = di_lb.copy()
                 di_ub['args'] = (x_kk, alpha/2)
                 # di_ub = {**{'f':self._err_cdf, 'args':(x_kk, alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}

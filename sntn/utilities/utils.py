@@ -5,8 +5,10 @@ Utility functions
 # Load modules
 import os
 import numpy as np
-from typing import Type, Callable, Tuple
+from mizani.transforms import trans
 from collections.abc import Iterable
+from typing import Type, Callable, Tuple
+
 
 def try2list(x) -> list:
     """Try to convert x to a list"""
@@ -17,6 +19,20 @@ def try2list(x) -> list:
         return list(x)
     else:
         return [x]
+
+class pseudo_log10(trans):
+    """
+    Implements the pseudo-log10 transform: https://win-vector.com/2012/03/01/modeling-trick-the-signed-pseudo-logarithm/
+    """
+    @staticmethod
+    def transform(x):
+        # y = arcsinh(x/2) / log(10)
+        return np.arcsinh(x/2)/np.log(10)
+
+    @staticmethod
+    def inverse(x):
+        # x = y*log(10)
+        return np.sinh(x * np.log(10))
 
 
 def makeifnot(dir_path):
