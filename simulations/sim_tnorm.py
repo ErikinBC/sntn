@@ -18,6 +18,8 @@ from time import time
 from sntn.dists import tnorm
 from sntn.utilities.utils import pseudo_log10
 from parameters import dir_figures, dir_simulations
+# For multiindex slicing
+idx = pd.IndexSlice
 
 
 ################################
@@ -27,24 +29,19 @@ from parameters import dir_figures, dir_simulations
 
 # Load the data generated from test_dist_tnorm.py
 di_bound = {'lb':'Lower-bound', 'ub':'Upper-bound'}
-res_all = pd.read_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'))
-mapdi = res_all.groupby('num').apply(lambda x: x['color'].unique()[0]).to_dict()
+res_solver_utests = pd.read_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'))
+mapdi = res_solver_utests.groupby('num').apply(lambda x: x['color'].unique()[0]).to_dict()
+mu0 = res_solver_utests['mu0'].unique()[0]
 # Screen for only "reasonable" candidates
+wide_solver_utests = res_solver_utests.pivot(index=['idx','method','approach'],columns='bound',values='value')
+wide_solver_utests = wide_solver_utests.assign(width=lambda x: x['ub']-x['lb'])
+wide_solver_utests = wide_solver_utests.assign(cover=lambda x: (x['lb'] <= mu0) & (x['ub'] >= mu0))
+wide_solver_freq = wide_solver_utests.groupby(['method','approach'])[['cover','width']].mean()
+best_solvers = wide_solver_freq.round(3).reset_index().merge(wide_solver_freq.round(3).groupby(['cover','width']).size().sort_values(ascending=False).head(1).reset_index())[['method','approach']]
+print(f'Out of {len(wide_solver_freq)} solvers, a total of {len(best_solvers)} show stable estimates')
 
 
 
-import plotnine as pn
-from parameters import dir_figures
-posd = pn.position_dodge(0.5)
-# .query('method!="Bounded"')
-gg = (pn.ggplot(res_all, pn.aes(x='idx',y='value',color='method',shape='method')) + 
-    pn.theme_bw() + pn.labs(y='Parameter bound',x='Random draw') + 
-    pn.geom_point(position=posd,size=2) + 
-    pn.facet_grid('bound ~ approach',labeller=lambda x: di_bound.get(x, x)) + 
-    pn.scale_color_discrete(name='Method') + 
-    pn.scale_y_continuous(trans=pseudo_log10) + 
-    pn.scale_shape_manual(name='Method',values=[f'${k}$' for k in mapdi]))
-gg.save(os.path.join(dir_figures, 'dist_tnorm_approach_method.png'),height=6,width=10)
 
 
 ##########################################

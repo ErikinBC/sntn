@@ -10,6 +10,12 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def is_equal(x:np.ndarray, y:np.ndarray, tol:float=1e-10) -> None:
+    """Can an assertion error if max(abs(x-y)) >= tol"""
+    mx_err = np.max(np.abs(x-y))
+    assert np.all( mx_err <= tol ), f'Error! Maximum error {mx_err} is greater than tolerance {tol}'
+
+
 def try2list(x) -> list:
     """Try to convert x to a list"""
     is_iterable = isinstance(x, Iterable)

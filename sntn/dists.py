@@ -4,13 +4,13 @@ Contains main distributions (i.e. SNTN)
 
 # External modules
 import numpy as np
-from scipy.stats import truncnorm
+from scipy.stats import truncnorm, norm
 # Internal modules
-from sntn.utilities.utils import vprint, broastcast_max_shape
+from sntn.utilities.utils import broastcast_max_shape
 
 
 class tnorm():
-    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int, verbose:bool=False) -> None:
+    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
         """
         Main model class for the truncated normal distribution
 
@@ -145,12 +145,25 @@ class tnorm():
         err2 = np.sum(self._err_cdf(mu, x, alpha)**2)
         return err2
 
+    def _dmu_dcdf(self, mu:np.ndarray, x:np.ndarray) -> np.ndarray:
+        """For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)"""
+        xi = (x-mu)/self.sigma
+        alpha = (self.a - mu)/self.sigma
+        beta = (self.b - mu)/self.sigma
+        z = norm.cdf(beta) - norm.cdf(alpha)
+        term1 = (norm.pdf(alpha)-norm.pdf(xi))/self.sigma
+        term2 = norm.cdf(xi) - norm.cdf(alpha)
+        term3 = (norm.pdf(alpha)-norm.pdf(beta))/self.sigma
+        val = (term1*z - term2*term3)/z**2  # quotient rule
+        return val
+
     def _derr_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
         """
         Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))
         """
         term1 = 2*self._err_cdf(mu, x, alpha)
         # term2 = 1  # Will require hand-derivation
+
 
 
     def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:

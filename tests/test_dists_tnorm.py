@@ -13,7 +13,10 @@ import pandas as pd
 from scipy.stats import norm, kstest
 # Internal
 from sntn.dists import tnorm
+from sntn.utilities.utils import is_equal
 from parameters import seed, dir_simulations
+
+params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generates TN parameters"""
@@ -24,8 +27,19 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     b = a + 2
     return mu, sigma2, a, b
 
+@pytest.mark.parametrize("shape", params_tnorm_rvs)
+def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7):
+    """Check that the numerical derivatives align with analytical ones"""
+    mu, sigma2, a, b = gen_params(shape, seed)
+    dist = tnorm(mu, sigma2, a, b)
+    dist_plus = tnorm(mu+eps, sigma2, a, b)
+    dist_minus = tnorm(mu-eps, sigma2, a, b)
+    x = np.squeeze(dist.rvs(1, seed))  # Draw one sample from each
+    dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
+    # Check for differences
+    is_equal(dist._dmu_dcdf(mu, x), dmu_num, tol)
 
-params_tnorm_rvs = [((10, )), ((10, 5)), ((10, 5, 2)),]
+
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
 def test_tnorm_rvs(shape:tuple or list, nsim:int=100000, tol1:float=1e-2, tol2:float=1e-9) -> None:
     """Check that rvs() gets the mean/median we expect from theory"""
