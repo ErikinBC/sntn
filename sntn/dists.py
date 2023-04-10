@@ -7,6 +7,7 @@ import numpy as np
 from scipy.stats import truncnorm, norm
 # Internal modules
 from sntn.utilities.utils import broastcast_max_shape
+from sntn.utilities.grad import _log_gauss_approx, _log_diff
 
 
 class tnorm():
@@ -139,31 +140,55 @@ class tnorm():
         return float(self._err_cdf(mu, x, alpha))
 
     def _err_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
-        """
-        Call _err_cdf and returns the square of the results
-        """
+        """Call _err_cdf and returns the square of the results"""
         err2 = np.sum(self._err_cdf(mu, x, alpha)**2)
         return err2
 
-    def _dmu_dcdf(self, mu:np.ndarray, x:np.ndarray) -> np.ndarray:
-        """For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)"""
-        xi = (x-mu)/self.sigma
-        alpha = (self.a - mu)/self.sigma
-        beta = (self.b - mu)/self.sigma
-        z = norm.cdf(beta) - norm.cdf(alpha)
-        term1 = (norm.pdf(alpha)-norm.pdf(xi))/self.sigma
-        term2 = norm.cdf(xi) - norm.cdf(alpha)
-        term3 = (norm.pdf(alpha)-norm.pdf(beta))/self.sigma
-        val = (term1*z - term2*term3)/z**2  # quotient rule
-        return val
+    def _dmu_dcdf(self, mu:np.ndarray, x:np.ndarray, alpha:float or None=None, approx:bool=False) -> np.ndarray:
+        """
+        For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)
+        
+        dF(mu)/du = {[(phi(alpha)-phi(xi))/sigma]*z + [(phi(alpha)-phi(beta))/sigma]*[Phi(xi)-Phi(alpha)] } /z^2
+        z = Phi(beta) - Phi(alpha)
+
+        Parameters
+        ----------
+        mu:                 Uncensored means
+        x:                  Points of evaluation (must match mu.shape)
+        alpha:              (ignore, used only to match argument length of _err_cdf)
+        approx:             Whether the norm.{cdf,pdf} should be used or the _log_gauss_methods for tail probabilities
+        """
+        # Normalize the inputs
+        x_z = (x-mu)/self.sigma
+        a_z = (self.a - mu)/self.sigma
+        b_z = (self.b - mu)/self.sigma
+        # Calculate derivatives from one of two approaches
+        if approx:
+            log_term1a = _log_gauss_approx(x_z, a_z, False) - np.log(self.sigma)
+            log_term1b = _log_gauss_approx(b_z, a_z, True)
+            log_term2a = _log_gauss_approx(x_z, a_z, True)
+            log_term2b = _log_gauss_approx(b_z, a_z, False) - np.log(self.sigma)
+            log_fgprime = log_term1a+log_term1b
+            log_gfprime = log_term2a+log_term2b
+            log_num = np.real(_log_diff(log_fgprime, log_gfprime))
+            log_denom = 2*_log_gauss_approx(b_z, a_z,True)
+            dFdmu = -np.exp(log_num - log_denom)
+        else:
+            term1a = (norm.pdf(a_z)-norm.pdf(x_z))/self.sigma
+            term1b = norm.cdf(b_z) - norm.cdf(a_z)
+            term2a = norm.cdf(x_z) - norm.cdf(a_z)
+            term2b = (norm.pdf(a_z)-norm.pdf(b_z))/self.sigma
+            dFdmu = (term1a*term1b - term2a*term2b)/term1b**2  # quotient rule
+        # print(f'mu={mu},val={dFdmu}')
+        if np.any(np.isnan(dFdmu)):
+            breakpoint()
+        return dFdmu
 
     def _derr_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
         """
         Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))
         """
-        term1 = 2*self._err_cdf(mu, x, alpha)
-        # term2 = 1  # Will require hand-derivation
-
+        return 2*self._err_cdf(mu, x, alpha)*self._dmu_dcdf(mu, x)
 
 
     def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
@@ -195,22 +220,49 @@ class tnorm():
         x0_lb, x0_ub = self.mu + c_alpha, self.mu - c_alpha
         x, mu, x0_lb, x0_ub = broastcast_max_shape(x, self.mu, x0_lb, x0_ub)
         
+        # Set a default "method" for each if not supplied in the kwargs
+        di_default_methods = {'root':'hybr',
+                              'minimize_scalar':'Brent',
+                              'minimize':'COBYLA',
+                              'root_scalar':'bisect'}
+        if 'method' not in kwargs:
+            kwargs['method'] = di_default_methods['approach']
+
         if approach == 'root_scalar':
             # ---- Approach #1: Point-wise root finding ---- #
             ci_lb, ci_ub = mu*np.nan, mu*np.nan
+            # There are four different approaches to configure root_scalar (see https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.root_scalar.html)
+            di_root_scalar_extra = {}
+            if kwargs['method'] in ['bisect', 'brentq', 'brenth', 'ridder','toms748']:
+                di_root_scalar_extra['bracket'] = (mu_lb, mu_ub)
+            elif kwargs['method'] == 'newton':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['fprime'] = self._dmu_dcdf
+            elif kwargs['method'] == 'secant':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['x1'] = None
+            elif kwargs['method'] == 'halley':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['fprime'] = self._dmu_dcdf
+                di_root_scalar_extra['fprime2'] = self._dmu_dcdf
+
             for kk in np.ndindex(x.shape): # Loop over all element points
                 # Define dict for each
-                x_kk = x[kk]  #, mu_kk, mu[kk]
-                di_lb = {**{'f':self._err_cdf0, 'args':(x_kk, 1-alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
+                x_kk = x[kk]
+                # Extra kk'th element
+                if 'x0' in di_root_scalar_extra:
+                    di_root_scalar_extra['x0'] = mu[kk]
+                if 'x1' in di_root_scalar_extra:
+                    di_root_scalar_extra['x1'] = x_kk
+                di_lb = {**{'f':self._err_cdf0, 'args':(x_kk, 1-alpha/2)}, **di_root_scalar_extra,**kwargs}
                 di_ub = di_lb.copy()
                 di_ub['args'] = (x_kk, alpha/2)
-                # di_ub = {**{'f':self._err_cdf, 'args':(x_kk, alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
-                lb_kk = root_scalar(**di_lb).root
-                ub_kk = root_scalar(**di_ub).root
+                lb_kk = float(root_scalar(**di_lb).root)
+                ub_kk = float(root_scalar(**di_ub).root)
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk            
         elif approach == 'minimize_scalar':
-            # ---- Approach #2: Point-wise scaler-wise ---- #
+            # ---- Approach #2: Point-wise gradient ---- #
             ci_lb, ci_ub = mu*np.nan, mu*np.nan
             di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
             for kk in np.ndindex(x.shape): # Loop over all element points
@@ -222,13 +274,12 @@ class tnorm():
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk
         elif approach == 'minimize':
-            print('minimize')
+            # ---- Approach #3: Vector gradient ---- #
             di_base = {**{'fun':self._err_cdf2, 'x0':mu},**kwargs}
             ci_lb = minimize(**{**di_base, **{'args':(x, 1-alpha/2)}}).x
             ci_ub = minimize(**{**di_base, **{'args':(x, alpha/2)}}).x
         else:
-            print('root')
-            # Try to solve the lowerbound
+            # ---- Approach #4: Gradient root finding ---- #
             di_lb = {**{'fun':self._err_cdf, 'x0':x0_lb, 'args':(x, 1-alpha/2)},**kwargs}
             di_ub = {**{'fun':self._err_cdf, 'x0':x0_ub, 'args':(x, alpha/2)},**kwargs}
             ci_lb = root(**di_lb).x

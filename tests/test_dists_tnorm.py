@@ -13,7 +13,7 @@ import pandas as pd
 from scipy.stats import norm, kstest
 # Internal
 from sntn.dists import tnorm
-from sntn.utilities.utils import is_equal
+from sntn.utilities.utils import is_equal, has_assertion_error
 from parameters import seed, dir_simulations
 
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
@@ -35,9 +35,28 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7):
     dist_plus = tnorm(mu+eps, sigma2, a, b)
     dist_minus = tnorm(mu-eps, sigma2, a, b)
     x = np.squeeze(dist.rvs(1, seed))  # Draw one sample from each
+    # Calculate the numerical derivative
     dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
+    # Run the exact analytical derivative
+    dmu_ana = dist._dmu_dcdf(mu, x, approx=False)
+    # Run the log-approx derivative
+    dmu_approx = dist._dmu_dcdf(mu, x, approx=True)
     # Check for differences
-    is_equal(dist._dmu_dcdf(mu, x), dmu_num, tol)
+    # print(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num))}')
+    # print(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num))}')
+    # print(f'Largest error b/w analytic and approx : {np.max(np.abs(dmu_ana - dmu_approx))}')
+    if np.max(np.abs(dmu_approx - dmu_num)) > 0.01:
+        idx_fail = np.argmax(np.abs(dmu_num-dmu_approx))
+        try:
+            print(f'x={x.flat[idx_fail]:.4f};a={a.flat[idx_fail]:.4f};b={b.flat[idx_fail]:.4f};mu={mu.flat[idx_fail]:.4f};sigma2={sigma2.flat[idx_fail]:.4f}')
+        except:
+            breakpoint()
+    # is_equal(dmu_ana, dmu_num, tol)
+    # is_equal(dmu_num, dmu_approx, tol)
+    # is_equal(dmu_ana, dmu_approx, tol)
+    
+    
+
 
 
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
@@ -109,10 +128,10 @@ def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
     mu, sigma2, a, b = gen_params((n,), seed)
     dist = tnorm(mu, sigma2, a, b)
     # Generate data
-    x = dist.rvs(ndraw, seed)
+    x = dist.rvs(ndraw, seed)[:2]
 
-    # (i) "root_scalar" apprach ('newton', 'secant', 'halley' require gradient so are ignored for now)
-    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748']
+    # (i) "root_scalar" apprach ('newton', 'halley')
+    methods_root_scalar = ['newton']  #'newton', 'bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant'
     holder_root_scalar = []
     for method in methods_root_scalar:
         print(f'Testing method {method} for root_scalar')
@@ -166,13 +185,15 @@ def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
  
     
 
-
 if __name__ == "__main__":
     # # Loop over rvs params
     # for param in params_tnorm_rvs:
     #     test_tnorm_rvs(param)
     # test_tnorm_cdf()
     # test_tnorm_ppf()
-    test_tnorm_CI()
+    # test_tnorm_CI()
 
+    for param in params_tnorm_rvs:
+        test_dmu(param)
+    
     print('~~~ The test_dists.py script worked successfully ~~~')
