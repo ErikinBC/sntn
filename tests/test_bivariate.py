@@ -1,17 +1,19 @@
 """
 Checks that different approaches to bivariate normal...
+
+python3 -m tests.test_bivariate
 """
 
 # External modules
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, truncnorm
 from sntn.utilities.grad import _log_gauss_approx, _log_diff
 
 # Sample points
 # x=0.5;a=-1;b=1;mu=2;sigma2=1.5
 # x=-0.0691;a=-0.6235;b=1.3765;mu=-0.0127;sigma2=1.1264
 # x=-0.0479;a=-0.2974;b=1.7026;mu=0.0773;sigma2=0.1964
-x=0.4070;a=-0.2679;b=1.7321;mu=[1,0.3190];sigma2=1.0431
+x=0.4070;a=-0.2679;b=1.7321;mu=[1,0.3190, 2, -3, -0.1];sigma2=1.0431
 sigma=sigma2**0.5
 x, a, b, mu, sigma = np.broadcast_arrays(x, a, b, mu, sigma)
 x_z = (x-mu)/sigma
@@ -38,10 +40,12 @@ log_num = np.real(_log_diff(log_fgprime, log_gfprime))
 log_denom = 2*_log_gauss_approx(b_z, a_z,True)
 val_approx = -np.exp(log_num - log_denom)
 
-np.exp(log_term1a)*np.exp(log_term1b)
-np.exp(log_term2a)*np.exp(log_term2b)
-num
-num
+# Check order
+assert np.abs(np.exp(log_term1a) * np.where(np.abs(a_z) > np.abs(x_z),-1,+1) - term1a).max() < 1e-10
+assert np.abs(np.where(b_z > a_z,+1,-1)*np.exp(log_term1b) - term1b).max()
+assert np.abs(np.where(x_z > a_z,+1,-1)*np.exp(log_term2a)-term2a).max()
+assert np.abs(np.exp(log_term2b) * np.where(np.abs(a_z) > np.abs(b_z),-1,+1) - term2b).max()
+
 
 # For reasonable values, we can exponentiate instead
 # idx_approx = ~((np.abs(log_fgprime) < 10) & (np.abs(log_gfprime) < 10))
@@ -51,17 +55,17 @@ num
 # np.exp(term1a[~idx_approx]) * np.exp(term1b[~idx_approx]) - np.exp(term2a[~idx_approx]) * np.exp(term2b[~idx_approx])
 
 
-for j in range(len(mu)):
-    print(f'---- {j} ----')
-    print(f'term1a={term1a[j]:.6f}, approx={np.exp(log_term1a[j]):.6f}')
-    print(f'term1b={term1b[j]:.6f}, approx={np.exp(log_term1b[j]):.6f}')
-    print(f'term2a={term2a[j]:.6f}, approx={np.exp(log_term2a[j]):.6f}')
-    print(f'term2b={term2b[j]:.6f}, approx={np.exp(log_term2b[j]):.6f}')
-    print(f'numerator={num[j]:.6f}, approx={np.exp(log_num[j]):.6f}')
-    print(f'denominator={den[j]:.6f}, approx={np.exp(log_denom[j]):.6f}')
-    print(f'Grad={val[j]}, approx={val_approx[j]}')
-    print(f'Absolute error: {np.max(np.abs(val[j] - val_approx[j]))}')
-    print('\n')
+# for j in range(len(mu)):
+#     print(f'---- {j} ----')
+#     print(f'term1a={term1a[j]:.6f}, approx={np.exp(log_term1a[j]):.6f}')
+#     print(f'term1b={term1b[j]:.6f}, approx={np.exp(log_term1b[j]):.6f}')
+#     print(f'term2a={term2a[j]:.6f}, approx={np.exp(log_term2a[j]):.6f}')
+#     print(f'term2b={term2b[j]:.6f}, approx={np.exp(log_term2b[j]):.6f}')
+#     print(f'numerator={num[j]:.6f}, approx={np.exp(log_num[j]):.6f}')
+#     print(f'denominator={den[j]:.6f}, approx={np.exp(log_denom[j]):.6f}')
+#     print(f'Grad={val[j]}, approx={val_approx[j]}')
+#     print(f'Absolute error: {np.max(np.abs(val[j] - val_approx[j]))}')
+#     print('\n')
 
 
 

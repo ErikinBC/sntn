@@ -15,23 +15,23 @@ def _log_diff(log_p, log_q):
 
 # CDF
 def _case_left_cdf(a, b):
-    return _log_diff(sc.log_ndtr(a), sc.log_ndtr(b))
+    return _log_diff(sc.log_ndtr(b), sc.log_ndtr(a))
 
 def _case_right_cdf(a, b):
-    return _case_left_cdf(-a, -b)
+    return _case_left_cdf(-b, -a)
 
 def _case_central_cdf(a, b):
-    return sc.log1p(-sc.ndtr(b) - sc.ndtr(-a))
+    return sc.log1p(-sc.ndtr(a) - sc.ndtr(-b))
 
 # PDF
 def _case_left_pdf(a, b):
-    return _log_diff(norm.logpdf(a), norm.logpdf(b))
+    return _log_diff(norm.logpdf(b), norm.logpdf(a))
 
 def _case_right_pdf(a, b):
-    return _case_left_pdf(-a, -b)
+    return _case_left_pdf(-b, -a)
 
 def _case_central_pdf(a, b):
-    return sc.log1p(-norm.pdf(b) - norm.pdf(-a))
+    return sc.log1p(-norm.pdf(a) - norm.pdf(-b))
 
 
 def _log_gauss_approx(a:np.ndarray, b:np.ndarray, cdf:bool=True) -> np.ndarray:
