@@ -30,6 +30,14 @@ idx = pd.IndexSlice
 # Load the data generated from test_dist_tnorm.py
 di_bound = {'lb':'Lower-bound', 'ub':'Upper-bound'}
 res_solver_utests = pd.read_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'))
+
+# res_all['idx'] = pd.Categorical(res_all['idx'] + 1, range(1,ndraw+1))
+# res_all = res_all.assign(num=lambda x: (pd.Categorical(x['method']).codes+1))
+# res_all = res_all.assign(color = lambda x: x['num'].astype(str) + '.' + x['method'])
+# # Add on the true parameters
+# assert len(mu) == 1, 'Cannot assign if value > 1'
+
+
 mapdi = res_solver_utests.groupby('num').apply(lambda x: x['color'].unique()[0]).to_dict()
 mu0 = res_solver_utests['mu0'].unique()[0]
 # Screen for only "reasonable" candidates
