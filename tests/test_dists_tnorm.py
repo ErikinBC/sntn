@@ -14,8 +14,11 @@ from scipy.stats import norm, kstest
 # Internal
 from sntn.dists import tnorm
 from parameters import seed, dir_simulations
+from sntn.utilities.utils import vprint, is_equal
 
+# Parameters recycled
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
+
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generates TN parameters"""
@@ -26,8 +29,9 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     b = a + 2
     return mu, sigma2, a, b
 
+
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
-def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7):
+def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
     """Check that the numerical derivatives align with analytical ones"""
     mu, sigma2, a, b = gen_params(shape, seed)
     dist = tnorm(mu, sigma2, a, b)
@@ -39,23 +43,15 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7):
     # Run the exact analytical derivative
     dmu_ana = dist._dmu_dcdf(mu, x, approx=False)
     # Run the log-approx derivative
+    # breakpoint()
     dmu_approx = dist._dmu_dcdf(mu, x, approx=True)
     # Check for differences
-    # print(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num))}')
-    # print(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num))}')
-    # print(f'Largest error b/w analytic and approx : {np.max(np.abs(dmu_ana - dmu_approx))}')
-    if np.max(np.abs(dmu_approx - dmu_num)) > 0.01:
-        idx_fail = np.argmax(np.abs(dmu_num-dmu_approx))
-        try:
-            print(f'x={x.flat[idx_fail]:.4f};a={a.flat[idx_fail]:.4f};b={b.flat[idx_fail]:.4f};mu={mu.flat[idx_fail]:.4f};sigma2={sigma2.flat[idx_fail]:.4f}')
-        except:
-            breakpoint()
-    # is_equal(dmu_ana, dmu_num, tol)
-    # is_equal(dmu_num, dmu_approx, tol)
-    # is_equal(dmu_ana, dmu_approx, tol)
-    
-    
-
+    vprint(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num)):.12f}',verbose)
+    vprint(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num)):.12f}',verbose)
+    vprint(f'Largest error b/w analytic and approx : {np.max(np.abs(dmu_ana - dmu_approx)):.12f}',verbose)
+    is_equal(dmu_ana, dmu_num, tol)
+    is_equal(dmu_num, dmu_approx, tol)
+    is_equal(dmu_ana, dmu_approx, tol)
 
 
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
@@ -121,23 +117,24 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
+def test_tnorm_CI(n:int=1, ndraw:int=10, approx:bool=True) -> None:
     """Check that the confidence interval is working as expected"""
     # Generate data
     mu, sigma2, a, b = gen_params((n,), seed)
     dist = tnorm(mu, sigma2, a, b)
     # Generate data
-    x = dist.rvs(ndraw, seed)[:2]
-
-    # (i) "root_scalar" apprach ('newton', 'halley')
-    methods_root_scalar = ['newton']  #'newton', 'bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant'
+    x = dist.rvs(ndraw, seed)#[[2]]
+    
+    # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
+    methods_root_scalar = ['newton', 'bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant']
     holder_root_scalar = []
     for method in methods_root_scalar:
         print(f'Testing method {method} for root_scalar')
-        res = dist.get_CI(x=x, approach='root_scalar', method=method)
+        res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
+    # breakpoint()
 
     # (ii) "minimizer_scalar" appraoch
     methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
@@ -185,14 +182,14 @@ def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
     
 
 if __name__ == "__main__":
-    # # Loop over rvs params
-    # for param in params_tnorm_rvs:
-    #     test_tnorm_rvs(param)
     # test_tnorm_cdf()
     # test_tnorm_ppf()
-    # test_tnorm_CI()
+    test_tnorm_CI()
 
-    for param in params_tnorm_rvs:
-        test_dmu(param)
+    # # Loop over rvs params
+    # for param in params_tnorm_rvs[1:]:
+    #     print(f'param={param}')
+        # test_dmu(param)
+        # test_tnorm_rvs(param)
     
     print('~~~ The test_dists.py script worked successfully ~~~')

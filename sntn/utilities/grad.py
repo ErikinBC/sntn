@@ -61,8 +61,13 @@ def _logsumexp(a:np.ndarray, b:np.ndarray, signs:None or np.ndarray=None):
         a, b = np.broadcast_arrays(a, b)
         signs = np.ones(a.shape)
     # Check sizes
-    assert a.ndim == b.ndim == signs.ndim == 1, 'Expected a, b, and signs to be 1-d arrays'
     assert a.shape == b.shape == signs.shape, 'a/b/signs need to have the same shape'
+    # Flatten for later
+    is_flat = False
+    if a.ndim > 1:
+        is_flat = True
+        store_shape = a.shape
+        a, b, signs = a.flatten(), b.flatten(), signs.flatten()
     mat = np.c_[a, b]
     mat_max = np.max(mat, axis=1, keepdims=True)
     mat_max[~np.isfinite(mat_max)] = 0
@@ -72,6 +77,8 @@ def _logsumexp(a:np.ndarray, b:np.ndarray, signs:None or np.ndarray=None):
         s = mat_adj[:,0] + signs*mat_adj[:,1]
         out = np.log(s)
     out += mat_max.flat  # Add back on constant
+    if is_flat:
+        out = out.reshape(store_shape)
     return out
 
 

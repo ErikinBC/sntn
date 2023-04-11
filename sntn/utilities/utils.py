@@ -10,6 +10,15 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:
+    """Return the absolute value of a gradient value either rounded up or down (a_min/a_max should be positive)"""
+    if (a_min is None) and (a_max is None):
+        return x
+    sx = np.sign(x)
+    cx = sx * np.clip(np.abs(x), a_min, a_max)
+    return cx
+
+
 def is_equal(x:np.ndarray, y:np.ndarray, tol:float=1e-10) -> None:
     """Can an assertion error if max(abs(x-y)) >= tol"""
     mx_err = np.max(np.abs(x-y))
