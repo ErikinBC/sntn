@@ -118,7 +118,7 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-params_CI = [ ((1,), 10), ((10,), 1), ((10,5), 1) ][:1]
+params_CI = [ ((1,), 10), ((10,), 1), ((10,5), 1) ]
 @pytest.mark.parametrize('n,ndraw', params_CI)
 def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     """Check that the confidence interval is working as expected"""
@@ -140,7 +140,7 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
-    # print(res_root_scalar)
+    print(res_root_scalar)
 
     # (ii) "minimizer_scalar" appraoch
     methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
@@ -148,6 +148,8 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     for method in methods_minimize_scalar:
         print(f'Testing method {method} for minimize_scalar')
         res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_minimize_scalar.append(res)
     res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')

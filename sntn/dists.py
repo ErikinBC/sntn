@@ -300,7 +300,6 @@ class tnorm():
 
         elif approach == 'minimize_scalar':
             # ---- Approach #2: Point-wise gradient ---- #
-            
             di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
             di_base = {**di_base, **kwargs}
             # Loop over all element points
