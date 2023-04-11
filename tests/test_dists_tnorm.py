@@ -13,7 +13,6 @@ import pandas as pd
 from scipy.stats import norm, kstest
 # Internal
 from sntn.dists import tnorm
-from sntn.utilities.utils import is_equal, has_assertion_error
 from parameters import seed, dir_simulations
 
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]

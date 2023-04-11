@@ -4,34 +4,75 @@ Utility functions for gradients
 
 # Load modules
 import numpy as np
-import scipy.special as sc
 from scipy.stats import norm
+from scipy.special import log_ndtr, ndtr, log1p
+
 
 ####################################
 # ---- (1) TRUNCATED GAUSSIAN ---- #
 
-def _log_diff(log_p, log_q):
-    return sc.logsumexp([log_p, log_q+np.pi*1j], axis=0)
+def _log_diff(log_p, log_q, signs:None or np.ndarray=None):
+    return _logsumexp(a=log_p, b=log_q+np.pi*1j, signs=signs)
 
 # CDF
 def _case_left_cdf(a, b):
-    return _log_diff(sc.log_ndtr(b), sc.log_ndtr(a))
+    val1, val2 = log_ndtr(b), log_ndtr(a)
+    return _log_diff(val1, val2)
 
 def _case_right_cdf(a, b):
     return _case_left_cdf(-b, -a)
 
 def _case_central_cdf(a, b):
-    return sc.log1p(-sc.ndtr(a) - sc.ndtr(-b))
+    val = -ndtr(a) - ndtr(-b)
+    return log1p(val)
 
 # PDF
 def _case_left_pdf(a, b):
-    return _log_diff(norm.logpdf(b), norm.logpdf(a))
+    val1, val2 = norm.logpdf(b), norm.logpdf(a)
+    return _log_diff(val1, val2)
 
 def _case_right_pdf(a, b):
     return _case_left_pdf(-b, -a)
 
 def _case_central_pdf(a, b):
-    return sc.log1p(-norm.pdf(a) - norm.pdf(-b))
+    val = -norm.pdf(a) - norm.pdf(-b)
+    return log1p(val)
+
+
+def _logsumexp(a:np.ndarray, b:np.ndarray, signs:None or np.ndarray=None):
+    """Calculates the log of sum of exponentials: log(a[i] + signs[i]*b[i])
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    b : array_like
+        Input array.
+    signs : array_like
+         Modifies the sum (which can through an error if it is negative)
+
+    Returns
+    -------
+    res : ndarray
+    """
+    if signs is not None:
+        a, b, signs = np.broadcast_arrays(a, b, signs)
+    else:
+        a, b = np.broadcast_arrays(a, b)
+        signs = np.ones(a.shape)
+    # Check sizes
+    assert a.ndim == b.ndim == signs.ndim == 1, 'Expected a, b, and signs to be 1-d arrays'
+    assert a.shape == b.shape == signs.shape, 'a/b/signs need to have the same shape'
+    mat = np.c_[a, b]
+    mat_max = np.max(mat, axis=1, keepdims=True)
+    mat_max[~np.isfinite(mat_max)] = 0
+    # suppress warnings about log of zero
+    with np.errstate(divide='ignore'):
+        mat_adj = np.exp(mat - mat_max)
+        s = mat_adj[:,0] + signs*mat_adj[:,1]
+        out = np.log(s)
+    out += mat_max.flat  # Add back on constant
+    return out
 
 
 def _log_gauss_approx(a:np.ndarray, b:np.ndarray, cdf:bool=True) -> np.ndarray:
