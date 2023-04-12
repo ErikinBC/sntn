@@ -122,7 +122,7 @@ class tnorm():
 
 
     @staticmethod
-    def _err_cdf(mu:np.ndarray, x:np.ndarray, sigma:np.ndarray, a:np.ndarray, b:np.ndarray, alpha:float, approx:bool=False, a_min=None, a_max=None) -> np.ndarray:
+    def _err_cdf(mu:np.ndarray, x:np.ndarray, sigma:np.ndarray, a:np.ndarray, b:np.ndarray, alpha:float, approx:bool=False, a_min=None, a_max=None, flatten:bool=False) -> np.ndarray:
         """
         Internal method to feed into the root findings/minimizers. Assumes that sigma/a/b are constant
         
@@ -142,6 +142,8 @@ class tnorm():
         b_trans = (b-mu)/sigma
         dist = truncnorm(loc=mu, scale=sigma, a=a_trans, b=b_trans)
         err = dist.cdf(x) - alpha
+        if flatten:
+            err = err.flatten()
         return err
 
     def _err_cdf0(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> float:
@@ -156,7 +158,7 @@ class tnorm():
         return err2
 
     @staticmethod
-    def _dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> np.ndarray:
+    def _dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
         """
         For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)
         
@@ -198,8 +200,8 @@ class tnorm():
             term2b = (norm.pdf(a_z)-norm.pdf(b_z))/sigma
             # quotient rule
             dFdmu = (term1a*term1b - term2a*term2b)/term1b**2  
-        # print(f'mu={mu},val={dFdmu}')
-        # if np.any(np.isnan(dFdmu)):
+        if flatten:
+            dFdmu = np.diag(dFdmu.flatten())
         return dFdmu
 
     def _derr_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
@@ -339,11 +341,22 @@ class tnorm():
             # Return to original size
             ci_lb = ci_lb.reshape(x.shape)
             ci_ub = ci_ub.reshape(x.shape)
-            
+
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            di_lb = {**{'fun':self._err_cdf, 'x0':x0_lb, 'args':(x, 1-alpha/2, approx, a_min, a_max)},**kwargs}
-            di_ub = {**{'fun':self._err_cdf, 'x0':x0_ub, 'args':(x, alpha/2, approx, a_min, a_max)},**kwargs}
+            di_base = {**{'fun':self._err_cdf, 'jac':self._dmu_dcdf, 'args':solver_args},**kwargs}
+            if kwargs['method'] in ['broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']:
+                # raise Warning(f"The method you have specified ({kwargs['method']}) is not supported")
+                # return None
+                del di_base['jac']
+            else:
+                assert kwargs['method'] in ['hybr', 'lm']
+            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
+            di_lb['args'][4] = 1-alpha/2
+            di_lb['x0'] = x0_lb.flatten()
+            di_ub['args'][4] = alpha/2
+            di_ub['x0'] = x0_ub.flatten()
+            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
             ci_lb = root(**di_lb).x
             ci_ub = root(**di_ub).x
         # Return values

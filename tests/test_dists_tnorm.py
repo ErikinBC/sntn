@@ -129,44 +129,44 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     # Generate data
     x = dist.rvs(ndraw, seed)
 
-    # # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
-    # methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant', 'newton']
-    # holder_root_scalar = []
-    # for method in methods_root_scalar:
-    #     print(f'Testing method {method} for root_scalar')
-    #     res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
-    #     if res.ndim > 2:
-    #         res = res.reshape([int(np.prod(n)), 2])
-    #     res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
-    #     holder_root_scalar.append(res)
-    # res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
+    # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
+    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant', 'newton']
+    holder_root_scalar = []
+    for method in methods_root_scalar:
+        print(f'Testing method {method} for root_scalar')
+        res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_root_scalar.append(res)
+    res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
 
-    # # (ii) "minimizer_scalar" appraoch
-    # methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
-    # holder_minimize_scalar = []
-    # for method in methods_minimize_scalar:
-    #     print(f'Testing method {method} for minimize_scalar')
-    #     res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
-    #     if res.ndim > 2:
-    #         res = res.reshape([int(np.prod(n)), 2])
-    #     res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
-    #     holder_minimize_scalar.append(res)
-    # res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
+    # (ii) "minimizer_scalar" appraoch
+    methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
+    holder_minimize_scalar = []
+    for method in methods_minimize_scalar:
+        print(f'Testing method {method} for minimize_scalar')
+        res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_minimize_scalar.append(res)
+    res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
-    # # (iii) "minimize" approach 
-    # methods_minimize = ['L-BFGS-B','BFGS','TNC','SLSQP','Nelder-Mead', 'Powell', 'COBYLA']
-    # holder_minimize = []
-    # for method in methods_minimize:
-    #     print(f'Testing method {method} for minimize')
-    #     res = dist.get_CI(x=x, approach='minimize', method=method)
-    #     if res.ndim > 2:
-    #         res = res.reshape([int(np.prod(n)), 2])
-    #     res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
-    #     holder_minimize.append(res)
-    # res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
+    # (iii) "minimize" approach 
+    methods_minimize = ['L-BFGS-B','BFGS','TNC','SLSQP','Nelder-Mead', 'Powell', 'COBYLA']
+    holder_minimize = []
+    for method in methods_minimize:
+        print(f'Testing method {method} for minimize')
+        res = dist.get_CI(x=x, approach='minimize', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
+        res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
+        holder_minimize.append(res)
+    res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
 
     # (iv) Check "root" approach
-    methods_root = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
+    methods_root = ['hybr', 'lm']
     holder_root = []
     for method in methods_root:
         print(f'Testing method {method} for root')
@@ -175,30 +175,33 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root.append(res)
-    res_root = pd.concat(holder_minimize).assign(approach='root')
+    res_root = pd.concat(holder_root).assign(approach='root')
     
-    # # Combine and save results
-    # res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
-    
-    # res_all = res_all.rename_axis('idx').melt(['method','approach'],['lb','ub'],ignore_index=False,var_name='bound').reset_index()
-    # res_all = res_all.assign(n=str(n), ndraw=ndraw)
-    
+    # Combine and save results
+    res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
+    res_all = res_all.rename_axis('idx').reset_index().merge(pd.DataFrame({'idx':range(np.prod(mu.shape)), 'mu0':mu.flatten()}))
+    res_all = res_all.melt(np.setdiff1d(res_all.columns, ['lb','ub']),['lb','ub'],var_name='bound')
+    res_all = res_all.assign(n=str(n), ndraw=ndraw)    
     # Clean up file name for saving
-    # fn_save = f"res_test_norm_CI_{'_'.join([str(i) for i in n])}_{ndraw}.csv"
-    # res_all = res_all.assign(mu0=mu[0])
-    # res_all.to_csv(os.path.join(dir_simulations, fn_save),index=False)
+    fn_save = f"res_test_norm_CI_{'_'.join([str(i) for i in n])}_{ndraw}.csv"
+    res_all.to_csv(os.path.join(dir_simulations, fn_save),index=False)
 
-    
 
 if __name__ == "__main__":
-    # test_tnorm_cdf()
-    # test_tnorm_ppf()
-    test_tnorm_CI()
+    test_tnorm_cdf()
+    test_tnorm_ppf()
 
-    # # Loop over rvs params
-    # for param in params_tnorm_rvs[1:]:
-    #     print(f'param={param}')
-        # test_dmu(param)
-        # test_tnorm_rvs(param)
+    for param in params_tnorm_fit:
+        test_tnorm_fit(param, use_sigma=True)
+
+    # Loop over rvs params
+    for param in params_tnorm_rvs:
+        print(f'param={param}')
+        test_dmu(param)
+        test_tnorm_rvs(param)
     
+    for param in params_CI:
+        n, ndraw = param[0], param[1]
+        test_tnorm_CI(n, ndraw) 
+
     print('~~~ The test_dists.py script worked successfully ~~~')
