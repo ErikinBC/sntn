@@ -149,7 +149,7 @@ class tnorm():
         res = float(self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max))
         return res
 
-    def _err_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> np.ndarray:
+    def _err_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
         """Call _err_cdf and returns the square of the results"""
         err = self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
         err2 = np.sum(err**2)
@@ -190,7 +190,6 @@ class tnorm():
             log_num = np.real(_log_diff(log_fgprime, log_gfprime, sign_fail))
             log_denom = 2*_log_gauss_approx(b_z, a_z,True)
             dFdmu = -np.exp(log_num - log_denom)
-            # breakpoint()
             dFdmu = grad_clip_abs(dFdmu, a_min, a_max)
         else:
             term1a = (norm.pdf(a_z)-norm.pdf(x_z))/sigma
@@ -203,11 +202,13 @@ class tnorm():
         # if np.any(np.isnan(dFdmu)):
         return dFdmu
 
-    def _derr_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> np.ndarray:
+    def _derr_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
         """Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))"""
         term1 = 2*self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
         term2 = self._dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
         res = term1 * term2
+        if flatten:
+            res = res.flatten()
         return res
 
 
@@ -251,12 +252,13 @@ class tnorm():
         # Set up the argument for the vectorized vs scalar methods
         if approach in ['minimize_scalar','root_scalar']:
             # x, sigma, a, b, alpha, approx, a_min, a_max
-            solver_args = [x.flat[0], self.sigma.flat[0], self.a.flat[0], self.b.flat[0], 1-alpha/2, approx, a_min, a_max]
+            solver_args = [x.flat[0], sigma.flat[0], a.flat[0], b.flat[0], 1-alpha/2, approx, a_min, a_max]
             # Will be assigned iteratively
             ci_lb = np.full_like(mu, fill_value=np.nan)
             ci_ub = ci_lb.copy()
         else:
-            solver_args = [x, self.sigma, self.a, self.b, alpha, approx, a_min, a_max]        
+            should_flatten = True
+            solver_args = [x.flatten(), sigma.flatten(), a.flatten(), b.flatten(), alpha, approx, a_min, a_max, should_flatten]
 
         if approach == 'root_scalar':
             # ---- Approach #1: Point-wise root finding ---- #
@@ -317,11 +319,29 @@ class tnorm():
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #
-            di_base = {**{'fun':self._err_cdf2, 'x0':mu},**kwargs}
-            ci_lb = minimize(**{**di_base, **{'args':(x, 1-alpha/2, approx, a_min, a_max)}}).x
-            ci_ub = minimize(**{**di_base, **{'args':(x, alpha/2, approx, a_min, a_max)}}).x
+            di_base = {**{'fun':self._err_cdf2, 'args':solver_args, 'x0':mu.flatten()},**kwargs}
+            if kwargs['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
+                # Gradient methods
+                di_base['jac'] = self._derr_cdf2
+            elif kwargs['method'] in ['Newton-CG', 'dogleg', 'trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']:
+                raise Warning(f"The method you have specified ({kwargs['method']}) is not supported")
+                return None
+            else:
+                # Gradient free methods
+                assert kwargs['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
+            # Run
+            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
+            di_lb['args'][4] = 1-alpha/2
+            di_ub['args'][4] = alpha/2
+            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+            ci_lb = minimize(**di_lb).x
+            ci_ub = minimize(**di_ub).x
+            # Return to original size
+            ci_lb = ci_lb.reshape(x.shape)
+            ci_ub = ci_ub.reshape(x.shape)
+            
         else:
-            # ---- Approach #4: Gradient root finding ---- #
+            # ---- Approach #4: Vectorized root finding ---- #
             di_lb = {**{'fun':self._err_cdf, 'x0':x0_lb, 'args':(x, 1-alpha/2, approx, a_min, a_max)},**kwargs}
             di_ub = {**{'fun':self._err_cdf, 'x0':x0_ub, 'args':(x, alpha/2, approx, a_min, a_max)},**kwargs}
             ci_lb = root(**di_lb).x
