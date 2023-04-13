@@ -5,9 +5,67 @@ Utility functions
 # Load modules
 import os
 import numpy as np
+import pandas as pd
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+
+
+def str2list(x:str or list) -> list:
+    """
+    If x is a string, convert to a list
+    """
+    if isinstance(x, str):
+        return [x]
+    else:
+        return x
+
+
+def cat_by_order(df:pd.DataFrame, cn_order:str or list, cn_cat:str, ascending:bool or list=True, drop_index:bool=True) -> pd.DataFrame:
+    """
+    Sort a dataframe and have one of the column become a category based on that order
+
+    Parameters
+    ----------
+    df:                 DataFrame to be sorted
+    cn_order:           Names of columns to sort by
+    cn_cat:             Name of column to make into categorical (must be unique)
+    ascending:          To be passed into pd.DataFrame.sort_values (default=True)
+    drop_index:         Whether index should be dropped after sort (default=True)
+
+    Returns
+    -------
+    DataFrame of the same shape
+    """
+    # Input checks
+    cn_order = str2list(cn_order)
+    assert isinstance(df, pd.DataFrame)
+    assert df.columns.isin(cn_order).sum() == len(cn_order), 'cn_order not found in df'
+    assert df.columns.isin(str2list(cn_cat)).sum() == 1, 'cn_cat not found in df'
+    df = df.sort_values(cn_order, ascending=ascending)
+    if drop_index:
+        df = df.reset_index(drop=True)
+    df[cn_cat] = pd.Categorical(df[cn_cat], df[cn_cat].values)
+    return df
+
+
+
+def mean_abs_error(x:np.ndarray) -> float:
+    """Assuming x is the error"""
+    return np.mean(np.abs(x))
+
+def mean_total_error(x:np.ndarray) -> float:
+    """Assuming x is the error"""
+    return np.sum(np.abs(x))
+
+
+def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:
+    """Return the absolute value of a gradient value either rounded up or down (a_min/a_max should be positive)"""
+    if (a_min is None) and (a_max is None):
+        return x
+    sx = np.sign(x)
+    cx = sx * np.clip(np.abs(x), a_min, a_max)
+    return cx
 
 
 def is_equal(x:np.ndarray, y:np.ndarray, tol:float=1e-10) -> None:
@@ -25,6 +83,70 @@ def try2list(x) -> list:
         return list(x)
     else:
         return [x]
+
+
+def pn_labeller(rows=None, cols=None, multi_line=True, **kwargs):
+    """
+    Return a labeller function
+
+    Parameters
+    ----------
+    rows : str | function | None
+        How to label the rows
+    cols : str | function | None
+        How to label the columns
+    multi_line : bool
+        Whether to place each variable on a separate line
+    default : function | str
+        Fallback labelling function. If it is a string,
+        it should be the name of one the labelling
+        functions provided by plotnine.
+    kwargs : dict
+        {variable name : function | string} pairs for
+        renaming variables. A function to rename the variable
+        or a string name.
+
+    Returns
+    -------
+    out : function
+        Function to do the labelling
+    """
+    from plotnine import as_labeller, label_value
+    # Sort out the labellers along each dimension
+    rows_labeller = as_labeller(rows, label_value, multi_line)
+    cols_labeller = as_labeller(cols, label_value, multi_line)
+
+    def collapse_label_lines(label_info):
+        """
+        Concatenate all items in series into one item
+        """
+        return pd.Series([', '.join(label_info)])
+
+
+    def _labeller(label_info):
+        # When there is no variable specific labeller,
+        # use that of the dimension
+        if label_info._meta['dimension'] == 'rows':
+            margin_labeller = rows_labeller
+        else:
+            margin_labeller = cols_labeller
+
+        # Labelling functions expect string values
+        label_info = label_info.astype(str)
+
+        # Each facetting variable is labelled independently
+        for name, value in label_info.items():
+            func = as_labeller(kwargs.get(name), margin_labeller)
+            new_info = func(label_info[[name]])
+            label_info[name] = new_info[name]
+
+        if not multi_line:
+            label_info = collapse_label_lines(label_info)
+
+        return label_info
+
+    return _labeller
+
 
 class pseudo_log10(trans):
     """
@@ -149,14 +271,14 @@ def broastcast_max_shape(*args, verbose=False) -> Tuple:
             args_i = np.repeat(arg, t_shape).reshape(max_shape) # Simply repeat and broadcast
         # --- Case 3: Same dim, different values --- #
         elif n_max_shape == n_sarg:
-            print(f'# --- Case 3: shape lens match --- #', verbose)            
+            vprint(f'# --- Case 3: shape lens match --- #', verbose)            
             # Broadcast any dimension with a value of one
             idx_dim1 = np.where(np.array(sarg) == 1)[0]
             assert len(idx_dim1) > 0, f'Since {sarg} does not match {max_shape}, it must have at least one dimension equal to one for broadcasting'
             tile_dim = [m if s == 1 else 1 for m, s in zip(max_shape, sarg)]
             args_i = np.tile(arg, reps=tile_dim)
         else:
-            print(f'# --- Case 4: different dimensions --- #', verbose)
+            vprint(f'# --- Case 4: different dimensions --- #', verbose)
             assert n_max_shape > n_sarg, f'If we are in case 4, expected {n_max_shape} > {n_sarg}'
             # Else, we assume that we only need to append a one (if this fails it will be caught at the assertion error below)
             pos_expand_axis = list(n_sarg + np.arange(n_max_shape - n_sarg))

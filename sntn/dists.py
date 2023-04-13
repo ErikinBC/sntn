@@ -4,9 +4,12 @@ Contains main distributions (i.e. SNTN)
 
 # External modules
 import numpy as np
+from copy import deepcopy
 from scipy.stats import truncnorm, norm
+from scipy.optimize import root, minimize_scalar, minimize, root_scalar
 # Internal modules
-from sntn.utilities.utils import broastcast_max_shape
+from sntn.utilities.utils import broastcast_max_shape, grad_clip_abs
+from sntn.utilities.grad import _log_gauss_approx, _log_diff
 
 
 class tnorm():
@@ -118,7 +121,8 @@ class tnorm():
         return self.dist.rvs(samp_shape, random_state=seed)
 
 
-    def _err_cdf(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
+    @staticmethod
+    def _err_cdf(mu:np.ndarray, x:np.ndarray, sigma:np.ndarray, a:np.ndarray, b:np.ndarray, alpha:float, approx:bool=False, a_min=None, a_max=None, flatten:bool=False) -> np.ndarray:
         """
         Internal method to feed into the root findings/minimizers. Assumes that sigma/a/b are constant
         
@@ -126,47 +130,91 @@ class tnorm():
         ----------
         mu:             A candidate array of means (what is being optimized over)
         x:              The observed data points
+        sigma:          Standard deviation
+        a:              Lowerbound
+        b:              Upperbound
         alpha:          The desired CDF level
+        approx:         Whether the norm.{cdf,pdf} should be used or the _log_gauss_methods for tail probabilities
+        a_min:          Whether lowerbound clipping should be applied to the gradient
+        a_max:          Whether upperbound clipping should be applied to the gradient
         """
-        a_trans = (self.a-mu)/self.sigma
-        b_trans = (self.b-mu)/self.sigma
-        dist = truncnorm(loc=mu, scale=self.sigma, a=a_trans, b=b_trans)
+        a_trans = (a-mu)/sigma
+        b_trans = (b-mu)/sigma
+        dist = truncnorm(loc=mu, scale=sigma, a=a_trans, b=b_trans)
         err = dist.cdf(x) - alpha
+        if flatten:
+            err = err.flatten()
         return err
 
-    def _err_cdf0(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> float:
+    def _err_cdf0(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> float:
         """Returns the 1, array as a float"""
-        return float(self._err_cdf(mu, x, alpha))
+        res = float(self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max))
+        return res
 
-    def _err_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
-        """
-        Call _err_cdf and returns the square of the results
-        """
-        err2 = np.sum(self._err_cdf(mu, x, alpha)**2)
+    def _err_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
+        """Call _err_cdf and returns the square of the results"""
+        err = self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
+        err2 = np.sum(err**2)
         return err2
 
-    def _dmu_dcdf(self, mu:np.ndarray, x:np.ndarray) -> np.ndarray:
-        """For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)"""
-        xi = (x-mu)/self.sigma
-        alpha = (self.a - mu)/self.sigma
-        beta = (self.b - mu)/self.sigma
-        z = norm.cdf(beta) - norm.cdf(alpha)
-        term1 = (norm.pdf(alpha)-norm.pdf(xi))/self.sigma
-        term2 = norm.cdf(xi) - norm.cdf(alpha)
-        term3 = (norm.pdf(alpha)-norm.pdf(beta))/self.sigma
-        val = (term1*z - term2*term3)/z**2  # quotient rule
-        return val
-
-    def _derr_cdf2(self, mu:np.ndarray, x:np.ndarray, alpha:float) -> np.ndarray:
+    @staticmethod
+    def _dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
         """
-        Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))
+        For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)
+        
+        dF(mu)/du = {[(phi(alpha)-phi(xi))/sigma]*z + [(phi(alpha)-phi(beta))/sigma]*[Phi(xi)-Phi(alpha)] } /z^2
+        z = Phi(beta) - Phi(alpha)
+
+        Parameters
+        ----------
+        see 
         """
-        term1 = 2*self._err_cdf(mu, x, alpha)
-        # term2 = 1  # Will require hand-derivation
+        # Normalize the inputs
+        x_z = (x-mu)/sigma
+        a_z = (a-mu)/sigma
+        b_z = (b-mu)/sigma
+        # Calculate derivatives from one of two approaches
+        if approx:
+            log_term1a = _log_gauss_approx(x_z, a_z, False) - np.log(sigma)
+            log_term1b = _log_gauss_approx(b_z, a_z, True)
+            log_term2a = _log_gauss_approx(x_z, a_z, True)
+            log_term2b = _log_gauss_approx(b_z, a_z, False) - np.log(sigma)
+            # The numerator will be off when the terms 1/2 do not align
+            sign1a = np.where(np.abs(a_z) > np.abs(x_z),-1,+1)
+            sign1b = np.where(b_z > a_z,+1,-1)
+            term1_signs = sign1a * sign1b
+            sign2a = np.where(x_z > a_z,+1,-1)
+            sign2b = np.where(np.abs(a_z) > np.abs(b_z),-1,+1)
+            term2_signs = sign2a * sign2b
+            sign_fail = np.where(term1_signs != term2_signs, -1, +1) 
+            log_fgprime = log_term1a + log_term1b
+            log_gfprime = log_term2a + log_term2b
+            log_num = np.real(_log_diff(log_fgprime, log_gfprime, sign_fail))
+            log_denom = 2*_log_gauss_approx(b_z, a_z,True)
+            dFdmu = -np.exp(log_num - log_denom)
+            dFdmu = grad_clip_abs(dFdmu, a_min, a_max)
+        else:
+            term1a = (norm.pdf(a_z)-norm.pdf(x_z))/sigma
+            term1b = norm.cdf(b_z) - norm.cdf(a_z)
+            term2a = norm.cdf(x_z) - norm.cdf(a_z)
+            term2b = (norm.pdf(a_z)-norm.pdf(b_z))/sigma
+            # quotient rule
+            dFdmu = (term1a*term1b - term2a*term2b)/term1b**2  
+        if flatten:
+            dFdmu = np.diag(dFdmu.flatten())
+        return dFdmu
+
+    def _derr_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
+        """Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))"""
+        term1 = 2*self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
+        term2 = self._dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
+        res = term1 * term2
+        if flatten:
+            res = res.flatten()
+        return res
 
 
-
-    def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
+    def get_CI(self, x:np.ndarray, approach:str, alpha:float=0.05, approx:bool=True, a_min:None or float=0.005, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
         """
         Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
         Calculate the confidence interval for a series of points (x)
@@ -174,18 +222,44 @@ class tnorm():
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
-        approach:           A total of four approaches have been implemented to calculate the CIs (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar})
+        approach:           A total of four approaches have been implemented to calculate the CIs (default=root_scalar, see scipy.optimize.{root, minimize_scalar, minimize, root_scalar})
         alpha:              Type-I error for the CIs (default=0.05)
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI?
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI?
-        kwargs:             Named arguments which will be passed into the scipy.optims
+        kwargs:             Named arguments which will be passed into the scipy.optims (default={'method':'secant'} if approach is default)
+
+        Notes on optimization approaches
+        -----
+        Optimal approaches
+        approach            method          notes
+        root_scalar         secant          Optimal speed/accuracy
+        minimize_scalar     Golden          Slower, but best accuracy
+        
+        approach            method          Recommended
+        minimize            BFGS            False
+                            COBYLA          False
+                            L-BFGS-B        False
+                            Nelder-Mead     False
+                            Powell          True
+                            SLSQP           False
+                            TNC             False
+        minimize_scalar     Bounded         False
+                            Brent           True
+                            Golden          True
+        root                hybr            False
+                            lm              False
+        root_scalar         bisect          True
+                            brenth          True
+                            brentq          True
+                            newton          False
+                            ridder          True
+                            secant          True
+                            toms748         True
 
         Returns
         -------
         An ({x.shape,mu.shape},2) array for the lower/upper bound. Shape be different than x if x gets broadcasted by the existing parameters
         """
-        from scipy.stats import norm
-        from scipy.optimize import root, minimize_scalar, minimize, root_scalar
         # Input checks
         valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
         assert approach in valid_approaches, f'approach needs to be one of {valid_approaches}'
@@ -193,46 +267,126 @@ class tnorm():
         # Guess some lower/upper bounds
         c_alpha = norm.ppf(alpha/2)
         x0_lb, x0_ub = self.mu + c_alpha, self.mu - c_alpha
-        x, mu, x0_lb, x0_ub = broastcast_max_shape(x, self.mu, x0_lb, x0_ub)
+        # Squeeze x if we can in cause parameters are (n,)
+        x = np.squeeze(x)
+        x, mu, sigma, a, b, x0_lb, x0_ub = broastcast_max_shape(x, self.mu, self.sigma, self.a, self.b, x0_lb, x0_ub)
         
+        # Set a default "method" for each if not supplied in the kwargs
+        di_default_methods = {'root':'hybr',
+                              'minimize_scalar':'Golden',
+                              'minimize':'Powell',
+                              'root_scalar':'secant'}
+        if 'method' not in kwargs:
+            kwargs['method'] = di_default_methods[approach]
+
+        # Set up the argument for the vectorized vs scalar methods
+        if approach in ['minimize_scalar','root_scalar']:
+            # x, sigma, a, b, alpha, approx, a_min, a_max
+            solver_args = [x.flat[0], sigma.flat[0], a.flat[0], b.flat[0], 1-alpha/2, approx, a_min, a_max]
+            # Will be assigned iteratively
+            ci_lb = np.full_like(mu, fill_value=np.nan)
+            ci_ub = ci_lb.copy()
+        else:
+            should_flatten = True
+            solver_args = [x.flatten(), sigma.flatten(), a.flatten(), b.flatten(), alpha, approx, a_min, a_max, should_flatten]
+
         if approach == 'root_scalar':
             # ---- Approach #1: Point-wise root finding ---- #
-            ci_lb, ci_ub = mu*np.nan, mu*np.nan
-            for kk in np.ndindex(x.shape): # Loop over all element points
-                # Define dict for each
-                x_kk = x[kk]  #, mu_kk, mu[kk]
-                di_lb = {**{'f':self._err_cdf0, 'args':(x_kk, 1-alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
-                di_ub = di_lb.copy()
-                di_ub['args'] = (x_kk, alpha/2)
-                # di_ub = {**{'f':self._err_cdf, 'args':(x_kk, alpha/2), 'bracket':(mu_lb, mu_ub)},**kwargs}
-                lb_kk = root_scalar(**di_lb).root
-                ub_kk = root_scalar(**di_ub).root
+            # There are four different approaches to configure root_scalar (see https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.root_scalar.html)
+            di_root_scalar_extra = {}
+            if kwargs['method'] in ['bisect', 'brentq', 'brenth', 'ridder','toms748']:
+                di_root_scalar_extra['bracket'] = (mu_lb, mu_ub)
+            elif kwargs['method'] == 'newton':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['fprime'] = self._dmu_dcdf
+            elif kwargs['method'] == 'secant':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['x1'] = None
+            elif kwargs['method'] == 'halley':
+                di_root_scalar_extra['x0'] = None
+                di_root_scalar_extra['fprime'] = self._dmu_dcdf
+                di_root_scalar_extra['fprime2'] = self._dmu_dcdf
+
+            # Prepare the parts of the optimization that won't change (note that kwargs will overwrite di_base)
+            di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250}  # Hard-coding unless specified by user based on stability experiments
+            di_base = {**di_base, **kwargs}
+            # Loop over all element points
+            for kk in np.ndindex(x.shape): 
+                # Update the solver_args
+                mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
+                solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
+                # Extra kk'th element
+                if 'x0' in di_root_scalar_extra:
+                    di_root_scalar_extra['x0'] = mu_kk
+                if 'x1' in di_root_scalar_extra:
+                    di_root_scalar_extra['x1'] = x_kk
+                # Hard-coding iterations
+                di_lb = {**di_base, **{'args':solver_args}, **di_root_scalar_extra}
+                di_ub = deepcopy(di_lb)
+                di_ub['args'][4] = alpha/2
+                di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+                lb_kk = float(root_scalar(**di_lb).root)
+                ub_kk = float(root_scalar(**di_ub).root)
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk            
+
         elif approach == 'minimize_scalar':
-            # ---- Approach #2: Point-wise scaler-wise ---- #
-            ci_lb, ci_ub = mu*np.nan, mu*np.nan
+            # ---- Approach #2: Point-wise gradient ---- #
             di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
-            for kk in np.ndindex(x.shape): # Loop over all element points
-                x_kk = x[kk]
-                di_lb = {**di_base, **{'args':(x_kk, 1-alpha/2)}, **kwargs}
-                di_ub = {**di_base, **{'args':(x_kk, alpha/2)}, **kwargs}
+            di_base = {**di_base, **kwargs}
+            # Loop over all element points
+            for kk in np.ndindex(x.shape):
+                mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
+                solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
+                di_lb = {**di_base, **{'args':solver_args}}
+                di_ub = deepcopy(di_lb)
+                di_ub['args'][4] = alpha/2
+                di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
                 lb_kk = minimize_scalar(**di_lb).x
                 ub_kk = minimize_scalar(**di_ub).x
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk
+        
         elif approach == 'minimize':
-            print('minimize')
-            di_base = {**{'fun':self._err_cdf2, 'x0':mu},**kwargs}
-            ci_lb = minimize(**{**di_base, **{'args':(x, 1-alpha/2)}}).x
-            ci_ub = minimize(**{**di_base, **{'args':(x, alpha/2)}}).x
+            # ---- Approach #3: Vector gradient ---- #
+            di_base = {**{'fun':self._err_cdf2, 'args':solver_args, 'x0':mu.flatten()},**kwargs}
+            if kwargs['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
+                # Gradient methods
+                di_base['jac'] = self._derr_cdf2
+            elif kwargs['method'] in ['Newton-CG', 'dogleg', 'trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']:
+                raise Warning(f"The method you have specified ({kwargs['method']}) is not supported")
+                return None
+            else:
+                # Gradient free methods
+                assert kwargs['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
+            # Run
+            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
+            di_lb['args'][4] = 1-alpha/2
+            di_ub['args'][4] = alpha/2
+            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+            ci_lb = minimize(**di_lb).x
+            ci_ub = minimize(**di_ub).x
+            # Return to original size
+            ci_lb = ci_lb.reshape(x.shape)
+            ci_ub = ci_ub.reshape(x.shape)
+
         else:
-            print('root')
-            # Try to solve the lowerbound
-            di_lb = {**{'fun':self._err_cdf, 'x0':x0_lb, 'args':(x, 1-alpha/2)},**kwargs}
-            di_ub = {**{'fun':self._err_cdf, 'x0':x0_ub, 'args':(x, alpha/2)},**kwargs}
+            # ---- Approach #4: Vectorized root finding ---- #
+            di_base = {**{'fun':self._err_cdf, 'jac':self._dmu_dcdf, 'args':solver_args},**kwargs}
+            if kwargs['method'] in ['broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']:
+                # raise Warning(f"The method you have specified ({kwargs['method']}) is not supported")
+                # return None
+                del di_base['jac']
+            else:
+                assert kwargs['method'] in ['hybr', 'lm']
+            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
+            di_lb['args'][4] = 1-alpha/2
+            di_lb['x0'] = x0_lb.flatten()
+            di_ub['args'][4] = alpha/2
+            di_ub['x0'] = x0_ub.flatten()
+            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
             ci_lb = root(**di_lb).x
             ci_ub = root(**di_ub).x
         # Return values
-        mat = np.c_[ci_lb, ci_ub]
+        mat = np.stack((ci_lb,ci_ub),ci_lb.ndim)
         return mat 

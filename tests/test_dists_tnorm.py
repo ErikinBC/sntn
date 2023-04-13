@@ -13,13 +13,20 @@ import pandas as pd
 from scipy.stats import norm, kstest
 # Internal
 from sntn.dists import tnorm
-from sntn.utilities.utils import is_equal
 from parameters import seed, dir_simulations
+from sntn.utilities.utils import vprint, is_equal
 
+# Parameters recycled
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
 
+
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
-    """Convenience wrapper for generates TN parameters"""
+    """Convenience wrapper for generates TN parameters
+    
+    Returns
+    -------
+    (mu, sigma2, a, b)
+    """
     np.random.seed(seed)
     mu = np.random.randn(*shape)
     sigma2 = np.exp(np.random.randn(*shape))
@@ -27,17 +34,30 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     b = a + 2
     return mu, sigma2, a, b
 
+
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
-def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7):
+def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
     """Check that the numerical derivatives align with analytical ones"""
     mu, sigma2, a, b = gen_params(shape, seed)
+    sigma = sigma2 ** 0.5
+    alpha, a_min, a_max = 0.05, None, None
     dist = tnorm(mu, sigma2, a, b)
     dist_plus = tnorm(mu+eps, sigma2, a, b)
     dist_minus = tnorm(mu-eps, sigma2, a, b)
     x = np.squeeze(dist.rvs(1, seed))  # Draw one sample from each
+    # Calculate the numerical derivative
     dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
+    # Run the exact analytical derivative
+    dmu_ana = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max, approx=False)
+    # Run the log-approx derivative
+    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max,  approx=True)
     # Check for differences
-    is_equal(dist._dmu_dcdf(mu, x), dmu_num, tol)
+    vprint(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num)):.12f}',verbose)
+    vprint(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num)):.12f}',verbose)
+    vprint(f'Largest error b/w analytic and approx : {np.max(np.abs(dmu_ana - dmu_approx)):.12f}',verbose)
+    is_equal(dmu_ana, dmu_num, tol)
+    is_equal(dmu_num, dmu_approx, tol)
+    is_equal(dmu_ana, dmu_approx, tol)
 
 
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
@@ -103,20 +123,25 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
+params_CI = [ ((1,), 5), ((5,), 1), ((3,2), 1), ((2,2,2), 1) ]
+@pytest.mark.parametrize('n,ndraw', params_CI)
+def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     """Check that the confidence interval is working as expected"""
+    print(f'n={n}, ndraw={ndraw}')
     # Generate data
-    mu, sigma2, a, b = gen_params((n,), seed)
+    mu, sigma2, a, b = gen_params(n, seed)
     dist = tnorm(mu, sigma2, a, b)
     # Generate data
     x = dist.rvs(ndraw, seed)
 
-    # (i) "root_scalar" apprach ('newton', 'secant', 'halley' require gradient so are ignored for now)
-    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748']
+    # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
+    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant', 'newton']
     holder_root_scalar = []
     for method in methods_root_scalar:
         print(f'Testing method {method} for root_scalar')
-        res = dist.get_CI(x=x, approach='root_scalar', method=method)
+        res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
@@ -127,52 +152,64 @@ def test_tnorm_CI(n:int=1, ndraw:int=10) -> None:
     for method in methods_minimize_scalar:
         print(f'Testing method {method} for minimize_scalar')
         res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_minimize_scalar.append(res)
     res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
-    # (iii) "minimize" approach
-    methods_minimize = ['Nelder-Mead', 'Powell', 'COBYLA']
+    # (iii) "minimize" approach 
+    methods_minimize = ['L-BFGS-B','BFGS','TNC','SLSQP','Nelder-Mead', 'Powell', 'COBYLA']
     holder_minimize = []
     for method in methods_minimize:
         print(f'Testing method {method} for minimize')
         res = dist.get_CI(x=x, approach='minimize', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_minimize.append(res)
     res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
 
     # (iv) Check "root" approach
-    methods_root = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
+    methods_root = ['hybr', 'lm']
     holder_root = []
     for method in methods_root:
         print(f'Testing method {method} for root')
         res = dist.get_CI(x=x, approach='root', method=method)
+        if res.ndim > 2:
+            res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root.append(res)
-    res_root = pd.concat(holder_minimize).assign(approach='root')
+    res_root = pd.concat(holder_root).assign(approach='root')
     
     # Combine and save results
     res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
-    res_all = res_all.rename_axis('idx').melt(['method','approach'],['lb','ub'],ignore_index=False,var_name='bound').reset_index()
-    res_all['idx'] = pd.Categorical(res_all['idx'] + 1, range(1,ndraw+1))
-    res_all = res_all.assign(num=lambda x: (pd.Categorical(x['method']).codes+1))
-    res_all = res_all.assign(color = lambda x: x['num'].astype(str) + '.' + x['method'])
-    # Add on the true parameters
-    assert len(mu) == 1, 'Cannot assign if value > 1'
-    res_all = res_all.assign(mu0=mu[0])
-    res_all.to_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'),index=False)
-
-
- 
-    
+    # Determine the index
+    x_flat, mu_flat, sigma2_flat, a_flat, b_flat = [z.flatten() for z in np.broadcast_arrays(x, mu, sigma2, a, b)]
+    dat_mu_idx = pd.DataFrame({'idx':range(x_flat.shape[0]), 'x':x_flat, 'mu':mu_flat, 'sigma2':sigma2_flat, 'a':a_flat, 'b':b_flat})
+    res_all = res_all.rename_axis('idx').reset_index().merge(dat_mu_idx)
+    res_all = res_all.melt(np.setdiff1d(res_all.columns, ['lb','ub']),['lb','ub'],var_name='bound')
+    res_all = res_all.assign(n=str(n), ndraw=ndraw)    
+    # Clean up file name for saving
+    fn_save = f"res_test_norm_CI_{'_'.join([str(i) for i in n])}_{ndraw}.csv"
+    res_all.to_csv(os.path.join(dir_simulations, fn_save),index=False)
 
 
 if __name__ == "__main__":
-    # # Loop over rvs params
-    # for param in params_tnorm_rvs:
-    #     test_tnorm_rvs(param)
     # test_tnorm_cdf()
     # test_tnorm_ppf()
-    test_tnorm_CI()
+
+    # for param in params_tnorm_fit:
+    #     test_tnorm_fit(param, use_sigma=True)
+
+    # # Loop over rvs params
+    # for param in params_tnorm_rvs:
+    #     print(f'param={param}')
+    #     test_dmu(param)
+    #     test_tnorm_rvs(param)
+    
+    for param in params_CI:
+        n, ndraw = param[0], param[1]
+        test_tnorm_CI(n, ndraw) 
 
     print('~~~ The test_dists.py script worked successfully ~~~')
