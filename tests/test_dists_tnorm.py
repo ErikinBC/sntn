@@ -21,7 +21,12 @@ params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
 
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
-    """Convenience wrapper for generates TN parameters"""
+    """Convenience wrapper for generates TN parameters
+    
+    Returns
+    -------
+    (mu, sigma2, a, b)
+    """
     np.random.seed(seed)
     mu = np.random.randn(*shape)
     sigma2 = np.exp(np.random.randn(*shape))
