@@ -16,10 +16,16 @@ import plotnine as pn
 from time import time
 # Internal
 from sntn.dists import tnorm
-from sntn.utilities.utils import pseudo_log10
+from sntn.utilities.utils import pseudo_log10, mean_total_error, cat_by_order
 from parameters import dir_figures, dir_simulations
 # For multiindex slicing
 idx = pd.IndexSlice
+
+# Hard-coded terms
+alpha = 0.05
+di_bound = {'lb':'Lower-bound', 'ub':'Upper-bound'}
+cn_eval = ['approach','method']  # What we are assessing
+cn_idx = ['n','ndraw','idx']  # For pivoting
 
 
 ################################
@@ -27,35 +33,48 @@ idx = pd.IndexSlice
 
 # Answer: Loading the unittests, we find...
 
-# Load the data generated from test_dist_tnorm.py
-di_bound = {'lb':'Lower-bound', 'ub':'Upper-bound'}
-res_solver_utests = pd.read_csv(os.path.join(dir_simulations, 'res_test_norm_CI.csv'))
+# --- Load & process unittest data --- #
+fn_test_norm = pd.Series(os.listdir(dir_simulations))
+fn_test_norm = fn_test_norm[fn_test_norm.str.contains('res_test_norm',regex=False)]
+fn_test_norm.reset_index(drop=True,inplace=True)
+holder = []
+for fn in fn_test_norm:
+    holder.append(pd.read_csv(os.path.join(dir_simulations, fn)))
+res_solver_utests = pd.concat(holder).reset_index(drop=True)
+approach_method_count = res_solver_utests.groupby(cn_eval).size()
+assert approach_method_count.var() == 0, 'Each approach/method should have same number of obs'
+# Check for n/ndraw consistency
+assert (res_solver_utests.groupby(['n','ndraw']).size() / int(approach_method_count.shape[0] * 2)).astype(int).reset_index().rename(columns={0:'tot'}).assign(num=lambda x: x['ndraw']*x['n'].apply(lambda z: np.prod(eval(z)))).assign(check=lambda x: x['tot']==x['num'])['check'].all(), 'Expected number of n/ndraw to align with # of approach/methods (times 2 for lb/ub)'
+ci, x, mu, sigma2, a, b = [res_solver_utests[cn] for cn in ['value','x','mu','sigma2','a','b']]
+# Under its own estimate, how close with the ci-mu to getting the right alpha?
+dist_ci = tnorm(ci, sigma2, a, b)
+pval_ci = dist_ci.cdf(x)
+res_solver_utests = res_solver_utests.assign(pval_ci=pval_ci)
+res_solver_utests = res_solver_utests.assign(pval_err=lambda x:  x['pval_ci']-(np.where(x['bound']=='lb',1-alpha/2,alpha/2)))
 
-# res_all['idx'] = pd.Categorical(res_all['idx'] + 1, range(1,ndraw+1))
-# res_all = res_all.assign(num=lambda x: (pd.Categorical(x['method']).codes+1))
-# res_all = res_all.assign(color = lambda x: x['num'].astype(str) + '.' + x['method'])
-# # Add on the true parameters
-# assert len(mu) == 1, 'Cannot assign if value > 1'
+# --- Calculate the p-value error and coverage --- #
+err_val = res_solver_utests.groupby(cn_eval)['pval_err'].agg(mean_total_error).reset_index()
+err_val = cat_by_order(err_val, 'pval_err', 'method')
 
-
-mapdi = res_solver_utests.groupby('num').apply(lambda x: x['color'].unique()[0]).to_dict()
-mu0 = res_solver_utests['mu0'].unique()[0]
-# Screen for only "reasonable" candidates
-wide_solver_utests = res_solver_utests.pivot(index=['idx','method','approach'],columns='bound',values='value')
-wide_solver_utests = wide_solver_utests.assign(width=lambda x: x['ub']-x['lb'])
-wide_solver_utests = wide_solver_utests.assign(cover=lambda x: (x['lb'] <= mu0) & (x['ub'] >= mu0))
-wide_solver_freq = wide_solver_utests.groupby(['method','approach'])[['cover','width']].mean()
-best_solvers = wide_solver_freq.round(3).reset_index().merge(wide_solver_freq.round(3).groupby(['cover','width']).size().sort_values(ascending=False).head(1).reset_index())[['method','approach']]
-print(f'Out of {len(wide_solver_freq)} solvers, a total of {len(best_solvers)} show stable estimates')
-
-
-
+gg_err_tnorm_utests = (pn.ggplot(err_val, pn.aes(x='method',y='-np.log10(pval_err)',color='approach')) + 
+    pn.theme_bw() + pn.geom_point(size=2) + 
+    pn.scale_color_discrete(name='scipy approach') + 
+    pn.labs(x='Method',y='-log10(Type-I error)') + 
+    pn.theme(axis_text_x=pn.element_text(angle=90)) + 
+    pn.ggtitle('Total difference to 2.5%/97.5% CDF value expected'))
+gg_err_tnorm_utests.save(os.path.join(dir_figures,'err_tnorm_utests.png'),width=5.5,height=3.5)
 
 
 ##########################################
 # ---- (ii) SOLVER COVERAGE/RUNTIME ---- #
 
 # Answer: ....
+
+
+
+# err2 = 
+# res_solver_utests.pivot(index=cn_idx+cn_eval+['mu'],columns='bound',values='value').reset_index('mu').assign(coverage=lambda x: (x['mu']>x['lb']) & (x['mu']<x['ub']) ).groupby(cn_eval)['coverage'].mean()
+
 
 
 ###################################

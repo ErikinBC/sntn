@@ -222,11 +222,34 @@ class tnorm():
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
-        approach:           A total of four approaches have been implemented to calculate the CIs (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar})
+        approach:           A total of four approaches have been implemented to calculate the CIs (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}). See notes on the list of suggested approaches
         alpha:              Type-I error for the CIs (default=0.05)
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI?
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI?
         kwargs:             Named arguments which will be passed into the scipy.optims
+
+        Notes on optimization approaches
+        -----
+        approach            method          Recommended
+        minimize            BFGS            False
+                            COBYLA          False
+                            L-BFGS-B        False
+                            Nelder-Mead     False
+                            Powell          True
+                            SLSQP           False
+                            TNC             False
+        minimize_scalar     Bounded         False
+                            Brent           True
+                            Golden          True
+        root                hybr            False
+                            lm              False
+        root_scalar         bisect          True
+                            brenth          True
+                            brentq          True
+                            newton          False
+                            ridder          True
+                            secant          True
+                            toms748         True
 
         Returns
         -------

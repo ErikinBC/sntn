@@ -5,9 +5,58 @@ Utility functions
 # Load modules
 import os
 import numpy as np
+import pandas as pd
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+
+
+def str2list(x:str or list) -> list:
+    """
+    If x is a string, convert to a list
+    """
+    if isinstance(x, str):
+        return [x]
+    else:
+        return x
+
+
+def cat_by_order(df:pd.DataFrame, cn_order:str or list, cn_cat:str, ascending:bool or list=True, drop_index:bool=True) -> pd.DataFrame:
+    """
+    Sort a dataframe and have one of the column become a category based on that order
+
+    Parameters
+    ----------
+    df:                 DataFrame to be sorted
+    cn_order:           Names of columns to sort by
+    cn_cat:             Name of column to make into categorical (must be unique)
+    ascending:          To be passed into pd.DataFrame.sort_values (default=True)
+    drop_index:         Whether index should be dropped after sort (default=True)
+
+    Returns
+    -------
+    DataFrame of the same shape
+    """
+    # Input checks
+    cn_order = str2list(cn_order)
+    assert isinstance(df, pd.DataFrame)
+    assert df.columns.isin(cn_order).sum() == len(cn_order), 'cn_order not found in df'
+    assert df.columns.isin(str2list(cn_cat)).sum() == 1, 'cn_cat not found in df'
+    df = df.sort_values(cn_order, ascending=ascending)
+    if drop_index:
+        df = df.reset_index(drop=True)
+    df[cn_cat] = pd.Categorical(df[cn_cat], df[cn_cat].values)
+    return df
+
+
+
+def mean_abs_error(x:np.ndarray) -> float:
+    """Assuming x is the error"""
+    return np.mean(np.abs(x))
+
+def mean_total_error(x:np.ndarray) -> float:
+    """Assuming x is the error"""
+    return np.sum(np.abs(x))
 
 
 def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:

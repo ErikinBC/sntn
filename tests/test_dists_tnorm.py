@@ -179,7 +179,10 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     
     # Combine and save results
     res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
-    res_all = res_all.rename_axis('idx').reset_index().merge(pd.DataFrame({'idx':range(np.prod(mu.shape)), 'mu0':mu.flatten()}))
+    # Determine the index
+    x_flat, mu_flat, sigma2_flat, a_flat, b_flat = [z.flatten() for z in np.broadcast_arrays(x, mu, sigma2, a, b)]
+    dat_mu_idx = pd.DataFrame({'idx':range(x_flat.shape[0]), 'x':x_flat, 'mu':mu_flat, 'sigma2':sigma2_flat, 'a':a_flat, 'b':b_flat})
+    res_all = res_all.rename_axis('idx').reset_index().merge(dat_mu_idx)
     res_all = res_all.melt(np.setdiff1d(res_all.columns, ['lb','ub']),['lb','ub'],var_name='bound')
     res_all = res_all.assign(n=str(n), ndraw=ndraw)    
     # Clean up file name for saving
@@ -188,17 +191,17 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
 
 
 if __name__ == "__main__":
-    test_tnorm_cdf()
-    test_tnorm_ppf()
+    # test_tnorm_cdf()
+    # test_tnorm_ppf()
 
-    for param in params_tnorm_fit:
-        test_tnorm_fit(param, use_sigma=True)
+    # for param in params_tnorm_fit:
+    #     test_tnorm_fit(param, use_sigma=True)
 
-    # Loop over rvs params
-    for param in params_tnorm_rvs:
-        print(f'param={param}')
-        test_dmu(param)
-        test_tnorm_rvs(param)
+    # # Loop over rvs params
+    # for param in params_tnorm_rvs:
+    #     print(f'param={param}')
+    #     test_dmu(param)
+    #     test_tnorm_rvs(param)
     
     for param in params_CI:
         n, ndraw = param[0], param[1]
