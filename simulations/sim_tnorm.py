@@ -18,7 +18,7 @@ from time import time
 from sntn.dists import tnorm
 from tests.test_dists_tnorm import gen_params
 from parameters import dir_figures, dir_simulations, seed
-from sntn.utilities.utils import pseudo_log10, mean_total_error, cat_by_order, pn_labeller
+from sntn.utilities.utils import mean_total_error, cat_by_order, pn_labeller
 # For multiindex slicing
 idx = pd.IndexSlice
 
@@ -161,11 +161,6 @@ gg_tnorm_tradeoff = (pn.ggplot(res_runtime_tradeoff, pn.aes(x='nlog_err',y='dtim
 gg_tnorm_tradeoff.save(os.path.join(dir_figures, 'tnorm_tradeoff.png'),width=5.5,height=3.5)
 
 
-res_runtime_msr.loc[0]
-
-
-
-
 ###################################
 # ---- (iii) SCIPY.DISTS.FIT ---- #
 
@@ -216,10 +211,6 @@ gg_tnorm_fit = (pn.ggplot(res_fit, pn.aes(x='mu_act',y='err',color='n.astype(str
     pn.labs(x='Actual mean',y='Actual less estimated mean') + 
     pn.theme_bw() + pn.ggtitle(gtit) + 
     pn.geom_point(position=posd,size=0.5,alpha=0.25) + 
-    # pn.geom_boxplot() + 
-    # pn.geom_violin(position=posd) + 
-    # pn.geom_abline(slope=1,intercept=0,linetype='--') +
-    # pn.geom_vline(pn.aes(xintercept='x'),data=dat_vlines,color='blue') + 
     pn.geom_vline(xintercept=[a,b],color='blue',linetype='--') + 
     pn.scale_color_discrete(name='Sample size') + 
     pn.scale_shape_discrete(name='Standard dev') + 

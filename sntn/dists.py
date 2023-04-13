@@ -222,14 +222,19 @@ class tnorm():
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
-        approach:           A total of four approaches have been implemented to calculate the CIs (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}). See notes on the list of suggested approaches
+        approach:           A total of four approaches have been implemented to calculate the CIs (default=root_scalar, see scipy.optimize.{root, minimize_scalar, minimize, root_scalar})
         alpha:              Type-I error for the CIs (default=0.05)
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI?
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI?
-        kwargs:             Named arguments which will be passed into the scipy.optims
+        kwargs:             Named arguments which will be passed into the scipy.optims (default={'method':'secant'} if approach is default)
 
         Notes on optimization approaches
         -----
+        Optimal approaches
+        approach            method          notes
+        root_scalar         secant          Optimal speed/accuracy
+        minimize_scalar     Golden          Slower, but best accuracy
+        
         approach            method          Recommended
         minimize            BFGS            False
                             COBYLA          False
@@ -268,9 +273,9 @@ class tnorm():
         
         # Set a default "method" for each if not supplied in the kwargs
         di_default_methods = {'root':'hybr',
-                              'minimize_scalar':'Brent',
-                              'minimize':'COBYLA',
-                              'root_scalar':'bisect'}
+                              'minimize_scalar':'Golden',
+                              'minimize':'Powell',
+                              'root_scalar':'secant'}
         if 'method' not in kwargs:
             kwargs['method'] = di_default_methods[approach]
 
