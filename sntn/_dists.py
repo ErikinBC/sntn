@@ -1,21 +1,24 @@
 """
-Words
+Contains the raw methods that get wrapped in dists.py
 """
 
+# External
+import numpy as np
+from scipy.stats import truncnorm, norm
+# Internal
+from sntn._solvers import _conf_int
+from sntn.utilities.grad import _log_gauss_approx, _log_diff
+from sntn.utilities.utils import broastcast_max_shape, grad_clip_abs
 
 
-class tnorm():
-    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
+class _truncnorm():
+    def __init__(self, mu, sigma2, a, b) -> None:
         """
-        Main model class for the truncated normal distribution
-
+        Wrapper to transform the scipy.dists.truncnorm to the alpha/beta scale and handle parameter broadcasting
+        
         Parameters
         ----------
-        mu:                 Means of the unconditional normal (can be array)
-        sigma2:             Variance of the truncated normal (can be array)
-        a:                  Lower bounds of truncated normal (can be -infty)
-        b:                  Upperbounds of truncated normal (can be +infty)
-        verbose:            Whether printing will occur some methods
+        See _tnorm()
 
         Attributes
         ----------
@@ -26,10 +29,6 @@ class tnorm():
         alpha:              Array of z-score lowerbounds
         beta:               Array of z-score upperbounds
         dist:               The scipy truncnorm
-
-        Methods
-        -------
-        ....
         """
         # Input checks and broadcasting
         self.mu, sigma2, self.a, self.b = broastcast_max_shape(mu, sigma2, a, b)
@@ -38,22 +37,50 @@ class tnorm():
         self.sigma = np.sqrt(sigma2)
         self.alpha = (self.a - self.mu) / self.sigma
         self.beta = (self.b - self.mu) / self.sigma
-        # Calculate the dimension size
-        self.param_shape = self.mu.shape
         # Initialize the distribution
         self.dist = truncnorm(loc=self.mu, scale=self.sigma, a=self.alpha, b=self.beta)
 
+
+class _tnorm():
+    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
+        """
+        Main model class for the truncated normal distribution
+
+        Parameters
+        ----------
+        mu:                 Means of the unconditional normal (can be array)
+        sigma2:             Variance of the truncated normal (can be array)
+        a:                  Lower bounds of truncated normal (can be -infty)
+        b:                  Upperbounds of truncated normal (can be +infty)
+
+        Attributes
+        ----------
+        _truncnorm.dist:    The scipy truncnorm distribution
+
+        Methods
+        -------
+        Similar to scipy.dists
+
+        cdf:        Calculates CDF
+        pdf:        Calculates PDF
+        ppf:        Calculates quantile
+        rvs:        Generates random variables
+        fit:        Tries to estimate mean
+        """
+        self._truncnorm = _truncnorm(mu, sigma2, a, b)
+
+
     def cdf(self, x:np.ndarray) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).cdf()"""
-        return self.dist.cdf(x)
+        return self._truncnorm.dist.cdf(x)
 
     def ppf(self, x:np.ndarray) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).ppf()"""
-        return self.dist.ppf(x)
+        return self._truncnorm.dist.ppf(x)
 
     def pdf(self, x:np.ndarray) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).pdf()"""
-        return self.dist.pdf(x)
+        return self._truncnorm.dist.pdf(x)
 
     def fit(self, x:np.ndarray, use_a:bool=True, use_b:bool=True, use_sigma:bool=False) -> tuple:
         """
@@ -110,44 +137,7 @@ class tnorm():
         samp_shape = (n,)
         if self.mu.shape != (1,):  # If everything is a float, no need for a second dimension
             samp_shape += self.mu.shape
-        return self.dist.rvs(samp_shape, random_state=seed)
-
-
-    @staticmethod
-    def _err_cdf(mu:np.ndarray, x:np.ndarray, sigma:np.ndarray, a:np.ndarray, b:np.ndarray, alpha:float, approx:bool=False, a_min=None, a_max=None, flatten:bool=False) -> np.ndarray:
-        """
-        Internal method to feed into the root findings/minimizers. Assumes that sigma/a/b are constant
-        
-        Parameters
-        ----------
-        mu:             A candidate array of means (what is being optimized over)
-        x:              The observed data points
-        sigma:          Standard deviation
-        a:              Lowerbound
-        b:              Upperbound
-        alpha:          The desired CDF level
-        approx:         Whether the norm.{cdf,pdf} should be used or the _log_gauss_methods for tail probabilities
-        a_min:          Whether lowerbound clipping should be applied to the gradient
-        a_max:          Whether upperbound clipping should be applied to the gradient
-        """
-        a_trans = (a-mu)/sigma
-        b_trans = (b-mu)/sigma
-        dist = truncnorm(loc=mu, scale=sigma, a=a_trans, b=b_trans)
-        err = dist.cdf(x) - alpha
-        if flatten:
-            err = err.flatten()
-        return err
-
-    def _err_cdf0(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max) -> float:
-        """Returns the 1, array as a float"""
-        res = float(self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max))
-        return res
-
-    def _err_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
-        """Call _err_cdf and returns the square of the results"""
-        err = self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
-        err2 = np.sum(err**2)
-        return err2
+        return self._truncnorm.dist.rvs(samp_shape, random_state=seed)
 
     @staticmethod
     def _dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
@@ -196,12 +186,12 @@ class tnorm():
             dFdmu = np.diag(dFdmu.flatten())
         return dFdmu
 
-    def _derr_cdf2(self, mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
-        """Wrapper for the derivative of d/dmu (F(mu) - alpha)**2 = 2*(F(mu)-alpha)*(d/dmu F(mu))"""
-        term1 = 2*self._err_cdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
-        term2 = self._dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max)
-        res = term1 * term2
-        if flatten:
-            res = res.flatten()
-        return res
+    def conf_int(self, x:np.ndarray, approach:str, alpha:float=0.05, approx:bool=True, a_min:None or float=0.005, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
+        """
+        Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
+        Calculate the confidence interval for a series of points (x)
+        """
+        # res = _conf_int
+        return None
+
 

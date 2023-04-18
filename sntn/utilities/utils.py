@@ -11,6 +11,18 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def no_diff(x, y):
+    assert set(x) == set(y) and len(x) == len(y), 'x and y do not have the same elements'
+
+
+def try2list(x) -> list or tuple:
+    """If x is not a list or a tuple, return as a list"""
+    if not (isinstance(x, list) or isinstance(x, tuple)):
+        return [x]
+    else:
+        return x
+
+
 def str2list(x:str or list) -> list:
     """
     If x is a string, convert to a list
@@ -240,15 +252,24 @@ def get_max_shape(*args) -> list:
     return shape_star
 
 
-
-def broastcast_max_shape(*args, verbose=False) -> Tuple:
+def broastcast_max_shape(*args, **kwargs) -> Tuple:
     """
     Takes an arbitrary number of *args in, and will try to broadcast into the max shape. Will return list of the same length. For example is args=(1, [1,2,3]) then will return (array(1,2,3), array(1,2,3)).
     """
-    # Input checks
-    assert len(args) > 0, 'Please specify at least one *args'
-    # assert not any([isinstance(a,list) or isinstance(a, tuple) for a in args]), 'One of the *args was found to be a list or a tuple, please make sure you specify *args if args is a list'
-    
+    # --- Input checks --- #
+    assert len(args) > 0 or len(kwargs) > 0, 'Please specify at least one *args'
+    if 'verbose' in kwargs:
+        verbose = kwargs['verbose']
+        del kwargs['verbose']
+    else:
+        verbose = False
+    assert isinstance(verbose, bool), 'verbose needs to be a boolean if specified'
+
+    # --- Merge args/kwargs together --- #
+    if len(kwargs) > 0:
+        args += tuple(kwargs.values())
+
+    # --- Modify each element --- #
     # Determine max shape 
     max_shape = get_max_shape(*args)
     # get the # of dimensions (n), the largest dimension (d), and total # of data points (t)
@@ -286,5 +307,7 @@ def broastcast_max_shape(*args, verbose=False) -> Tuple:
         # Check and then update
         assert args_i.shape == max_shape, f'Woops expected {args_i.shape} == {max_shape}'
         args[i] = args_i
+    
     # Return broadcasted args
     return args
+

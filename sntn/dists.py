@@ -4,11 +4,12 @@ Contains main distributions (i.e. SNTN)
 
 # External modules
 import numpy as np
-from copy import deepcopy
-from scipy.stats import truncnorm, norm
-from scipy.optimize import root, minimize_scalar, minimize, root_scalar
 # Internal modules
-from sntn.utilities.utils import broastcast_max_shape, grad_clip_abs
-from sntn.utilities.grad import _log_gauss_approx, _log_diff
+from sntn._dists import _tnorm
+
+
+class tnorm(_tnorm):
+    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
+        super().__init__(mu, sigma2, a, b)
 
 
