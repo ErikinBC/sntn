@@ -15,6 +15,7 @@ from sntn._solvers import conf_inf_solver
 alpha = 0.05
 c_alpha = norm.ppf(1-alpha/2)
 eps = 1e-6
+tol = 1e-7
 
 
 def check_err_cdf_tol(solver:conf_inf_solver, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> None:
@@ -35,7 +36,7 @@ def check_err_cdf_tol(solver:conf_inf_solver, theta:np.ndarray, x:np.ndarray, al
     # Going to broadcast alpha for looping
     _, alpha = np.broadcast_arrays(theta, alpha)
     # Check that the "error" is zero at the true solution
-    di_eval = {**{'theta':theta, 'x':x, 'alpha':alpha}, **dist_kwargs}
+    di_eval = {**{'theta':theta.copy(), 'x':x, 'alpha':alpha}, **dist_kwargs}
     assert np.all(solver._err_cdf(**di_eval) == 0), 'Root was not zero'
     assert np.all(solver._err_cdf2(**di_eval) == 0), 'Squared-error was not zero'
     for i in range(n):
@@ -81,12 +82,13 @@ dist_kwargs = {'scale':sd}
 # Check that error functions recognize this as the "true" solution
 check_err_cdf_tol(solver=solver, theta=ci_ub0, x=x, alpha=alpha/2, **dist_kwargs)
 
-
 # Check that the solver._conf_int method gets the same results
 di_dist_args = {'scale':sd}
 di_scipy = {'method':'secant'}
 mu_lb, mu_ub = -10, +10
-solver._conf_int(x=x, approach='root_scalar', di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=-10, mu_ub=+10)
+ci_root = solver._conf_int(x=x, approach='root_scalar', di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=-10, mu_ub=+10)
+is_equal(ci_root[:,0], ci_lb0, tol)
+is_equal(ci_root[:,1], ci_ub0, tol)
 
 
 #########################

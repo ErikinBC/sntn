@@ -105,7 +105,7 @@ class conf_inf_solver():
         return flatten
 
 
-    def _err_cdf(self, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> np.ndarray:
+    def _err_cdf(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """
         Calculates the differences between the candidate points and the CDF and the current set of parameters
         
@@ -114,12 +114,16 @@ class conf_inf_solver():
         theta:              Candidate parameter values to be passed into self.dist
         x:                  Points to evaluate the self.dist(...).cdf(x) at
         alpha:              Type-I error to compare the cdf to self.dist.cdf(x)-alpha
+        dist_args:          If kwargs cannot be passed, assumes that the dist_args are a tuple where the first element and the key names, and the remaining are the values
         dist_kwargs:        Other named parameters which will go into self.dist({param_theta}=theta,**{'scale':2}). Note that user can also add a named key "flatten":{True,False} which will not go into the evaluation
 
         Returns
         -------
         A np.ndarray of the same size as theta/x
         """
+        if len(dist_args) > 0:
+            di_names = dist_args[0]
+            dist_kwargs = dict(zip(di_names, dist_args[1:]))
         flatten = self._check_flatten(dist_kwargs)
         # Combine the named parameter with any other ones
         kwargs = {**{self.param_theta:theta}, **dist_kwargs}
@@ -130,24 +134,24 @@ class conf_inf_solver():
         return err
 
 
-    def _err_cdf0(self, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> float:
+    def _err_cdf0(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> float:
         """Wrapper for _err_cdd to return a float"""
-        res = float(self._err_cdf(theta, x, alpha, **dist_kwargs))
+        res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
         return res
 
 
-    def _err_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> np.ndarray:
+    def _err_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """Wrapper for _err_cdf to return squared value"""
-        err = self._err_cdf(theta, x, alpha, **dist_kwargs)
+        err = self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         err2 = np.sum(err**2)
         return err2
 
 
-    def _derr_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> np.ndarray:
+    def _derr_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """Wrapper for the derivative of d/dmu (F(theta) - alpha)**2 = 2*(F(theta)-alpha)*(d/dmu F(mu))"""
         flatten = self._check_flatten(dist_kwargs)
-        term1 = 2*self._err_cdf(theta, x, alpha, **dist_kwargs)
-        term2 = self.dF_dtheta(theta, x, alpha, **dist_kwargs)
+        term1 = 2*self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
+        term2 = self.dF_dtheta(theta, x, alpha, *dist_args, **dist_kwargs)
         res = term1 * term2
         if flatten:
             res = res.flatten()
@@ -198,6 +202,11 @@ class conf_inf_solver():
             # Will be assigned iteratively
             ci_lb = np.full_like(x, fill_value=np.nan)
             ci_ub = ci_lb.copy()
+            # Invert the di_dist_args so that the keys are the broadbasted index
+            u_lens = set([v.shape[0] for v in di_dist_args.values()])
+            assert len(u_lens) == 1, 'Multiple lengths found for di_dist_args, please make sure they are broadcastable to the same length'
+            new_keys = range(list(u_lens)[0])
+            di_dist_args_idx = {i: tuple([di_dist_args[key][i] for key in di_dist_args.keys()]) for i in new_keys}
         else:
             # Needs to be flat for vector-base solvers
             should_flatten = True
@@ -218,30 +227,30 @@ class conf_inf_solver():
             
             # Prepare the parts of the optimization that won't change (note that di_scipy will overwrite di_base)
             di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250}  # Hard-coding unless specified by user based on stability experiments
-            di_base = {**di_base, **di_scipy}
+            
             # Loop over all element points
+            i = 0
             for kk in np.ndindex(x.shape): 
-                # Add args to di_base
-                breakpoint()
-                args_kk = ()
-                # conf_inf_solver._err_cdf0()
-                # conf_inf_solver._err_cdf(x=,alpha=,**kwargs=)
-                mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
-                solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
-                # Extra kk'th element
-                if 'x0' in di_root_scalar_extra:
-                    di_root_scalar_extra['x0'] = mu_kk
-                if 'x1' in di_root_scalar_extra:
-                    di_root_scalar_extra['x1'] = x_kk
-                # Hard-coding iterations
-                di_lb = {**di_base, **{'args':solver_args}, **di_root_scalar_extra}
-                di_ub = deepcopy(di_lb)
-                di_ub['args'][4] = alpha/2
-                di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+                # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
+                x_kk = x[kk]
+                args_ii = di_dist_args_idx[i]
+                di_scipy['x0'] = 1.00*x_kk
+                di_scipy['x1'] = 1.01*x_kk
+                # Prepare optional arguments to pass into loss function
+                args_ii_lb = [x_kk, 1-self.alpha/2, di_dist_args.keys(), args_ii]
+                # Swap alpha's for upper/lowerbound
+                args_ii_ub = args_ii_lb.copy()
+                args_ii_ub[1] = self.alpha/2
+                # Prepare final dict for root finding
+                di_lb = {**di_base, **di_scipy}
+                di_ub = {**di_base, **di_scipy}
+                di_lb['args'] = tuple(args_ii_lb)
+                di_ub['args'] = tuple(args_ii_ub)
                 lb_kk = float(root_scalar(**di_lb).root)
                 ub_kk = float(root_scalar(**di_ub).root)
                 ci_lb[kk] = lb_kk
-                ci_ub[kk] = ub_kk            
+                ci_ub[kk] = ub_kk
+                i += 1  
 
         elif approach == 'minimize_scalar':
             # ---- Approach #2: Point-wise gradient ---- #
@@ -303,12 +312,15 @@ class conf_inf_solver():
             ci_lb = root(**di_lb).x
             ci_ub = root(**di_ub).x
         # Check which order to return the columns so that lowerbound is in the first column position
-        is_correct = np.all(mat[:,1] >= mat[:,0])
+        is_correct = np.all(ci_ub >= ci_lb)
+        is_flipped = False
         if not is_correct:
-            is_flipped = np.all(mat[:,0] >= mat[:,1])
-            mat = mat[:,[1,0]]  # Flip columns
-        else:
-            raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
+            is_flipped = np.all(ci_lb >= ci_ub)
+            if not is_flipped:
+                raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
-        mat = np.stack((ci_lb,ci_ub),ci_lb.ndim)
+        if is_flipped:
+            mat = np.stack((ci_ub, ci_lb),ci_lb.ndim)
+        else:
+            mat = np.stack((ci_lb,ci_ub),ci_lb.ndim)
         return mat 
