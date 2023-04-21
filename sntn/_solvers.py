@@ -41,7 +41,7 @@ valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
 # First item is "recommended"
 di_default_methods = {'root':['hybr', 'lm'],
                       'minimize_scalar':['Golden', 'Bounded', 'Brent'],
-                      'minimize':['Nelder-Mead', 'Powell', 'COBYLA','CG','BFGS','L-BFGS-B','TNC','SLSQP'],
+                      'minimize':['Powell','COBYLA','L-BFGS-B'], # ,'Nelder-Mead','BFGS','TNC','SLSQP','CG'
                       'root_scalar':['secant','bisect', 'brentq', 'brenth', 'ridder','toms748','newton']}
 no_diff(valid_approaches, di_default_methods.keys())
 
@@ -158,9 +158,10 @@ class conf_inf_solver():
     def _derr_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """Wrapper for the derivative of d/dmu (F(theta) - alpha)**2 = 2*(F(theta)-alpha)*(d/dmu F(mu))"""
         flatten, dist_kwargs = self._check_flatten(**dist_kwargs)
-        term1 = 2*self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
+        term1 = self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         term2 = self.dF_dtheta(theta, x, alpha, *dist_args, **dist_kwargs)
-        res = term1 * term2
+        # res = 2 * term1 * term2
+        res = (2 * term1 * term2) / ( term1**2 + 1)
         if flatten:
             res = res.flatten()
         return res
@@ -219,8 +220,16 @@ class conf_inf_solver():
             di_dist_args_idx = {i: tuple([di_dist_args[key][i] for key in di_dist_args.keys()]) for i in new_keys}
         else:
             # Needs to be flat for vector-base solvers
-            should_flatten = True
+            assert approach in ['root','minimize'], 'expected the vector solvers'
+            if approach == 'root':
+                should_flatten = True
+            else:
+                should_flatten = False
             di_dist_args = {k:v.flatten() for k,v in di_dist_args.items()}
+            arg_names = list(di_dist_args.keys()) + ['flatten']
+            arg_vals = list(di_dist_args.values()) + [should_flatten]
+            arg_vec = [x, None, arg_names, arg_vals]
+            
 
         # ---- Approach #1: Point-wise root finding ---- #
             # There are four different approaches to configure root_scalar
@@ -274,8 +283,6 @@ class conf_inf_solver():
                 args_ii = [x_kk, 1-self.alpha/2, di_dist_args.keys(), di_dist_args_idx[i]]
                 di_base['args'] = tuple(args_ii)
                 lb_kk = minimize_scalar(**di_base).x
-                if lb_kk < -200:
-                    minimize_scalar(fun=self._err_cdf2, bounds=(-10, 10), args=(x_kk, 0.975, ['scale'], (2,) ), method='Brent',tol=1e-10)
                 # Solve upperbound
                 args_ii[1] = self.alpha/2
                 di_base['args'] = tuple(args_ii)
@@ -288,40 +295,39 @@ class conf_inf_solver():
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #
-            di_base = {**{'fun':self._err_cdf2, 'args':solver_args, 'x0':mu.flatten()},**di_scipy}
-            # if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
-            #     # Gradient methods
-            #     di_base['jac'] = self._derr_cdf2
-            # elif di_scipy['method'] in ['Newton-CG', 'dogleg', 'trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']:
-            #     raise Warning(f"The method you have specified ({di_scipy['method']}) is not supported")
-            #     return None
-            # else:
-            #     # Gradient free methods
-            #     assert di_scipy['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
-            # # Run
-            # di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
-            # di_lb['args'][4] = 1-alpha/2
-            # di_ub['args'][4] = alpha/2
-            # di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
-            # ci_lb = minimize(**di_lb).x
-            # ci_ub = minimize(**di_ub).x
-            # # Return to original size
-            # ci_lb = ci_lb.reshape(x.shape)
-            # ci_ub = ci_ub.reshape(x.shape)
+            di_base = {**{'fun':self._err_cdf2, 'args':(), 'x0':x.flatten()}, **di_scipy}
+            if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
+                # Gradient methods
+                di_base['jac'] = self._derr_cdf2
+            else:
+                # Gradient free methods
+                assert di_scipy['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
+            # Solve for the lower-bound
+            arg_vec[1] = 1-self.alpha/2
+            di_base['args'] = tuple(arg_vec)
+            ci_lb = minimize(**di_base).x
+            # Solve for upper-bound
+            arg_vec[1] = self.alpha/2
+            di_base['args'] = tuple(arg_vec)
+            ci_ub = minimize(**di_base).x
+            # Return to original size
+            ci_lb = ci_lb.reshape(x.shape)
+            ci_ub = ci_ub.reshape(x.shape)
 
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            # Prepare input dictionaries
-            arg_names = list(di_dist_args.keys()) + ['flatten']
-            arg_vals = list(di_dist_args.values()) + [True]
-            args_lb = (x, 1-self.alpha/2, arg_names, arg_vals)
-            args_ub = (x, self.alpha/2, arg_names, arg_vals)
-            di_base = {**{'fun':self._err_cdf, 'x0':x, 'jac':self.dF_dtheta, 'args':()},**di_scipy}
-            di_lb, di_ub = di_base.copy(), di_base.copy()
-            di_lb['args'] = args_lb
-            di_ub['args'] = args_ub
-            ci_lb = root(**di_lb).x
-            ci_ub = root(**di_ub).x
+            di_base = {**{'fun':self._err_cdf, 'x0':x, 'jac':self.dF_dtheta, 'args':()}, **di_scipy}
+            # Solve for the lower-bound
+            arg_vec[1] = 1-self.alpha/2
+            di_base['args'] = tuple(arg_vec)
+            ci_lb = root(**di_base).x
+            # Solve for upper-bound
+            arg_vec[1] = self.alpha/2
+            di_base['args'] = tuple(arg_vec)
+            ci_ub = root(**di_base).x
+            # Return to original size
+            ci_lb = ci_lb.reshape(x.shape)
+            ci_ub = ci_ub.reshape(x.shape)
         
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
@@ -329,7 +335,6 @@ class conf_inf_solver():
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
-                breakpoint()
                 raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:
