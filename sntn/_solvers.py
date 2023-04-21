@@ -149,9 +149,9 @@ class conf_inf_solver():
 
 
     def _err_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
-        """Wrapper for _err_cdf to return squared value"""
+        """Wrapper for _err_cdf to return log(squared value + 1)"""
         err = self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
-        err2 = np.sum(err**2)
+        err2 = np.log(np.sum(err**2) + 1)  # More stable than: np.sum(err**2)
         return err2
 
 
@@ -236,49 +236,55 @@ class conf_inf_solver():
                 di_scipy['x1'] = mu_ub
             
             # Prepare the parts of the optimization that won't change (note that di_scipy will overwrite di_base)
-            di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250}  # Hard-coding unless specified by user based on stability experiments
+            di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250, 'args':(), 'x0':0, 'x1':1}  
+            di_base = {**di_base, **di_scipy}  # Hard-coding unless specified by user based on stability experiments
             
             # Loop over all element points
             i = 0
             for kk in np.ndindex(x.shape): 
                 # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
                 x_kk = x[kk]
-                args_ii = di_dist_args_idx[i]
-                di_scipy['x0'] = 1.00*x_kk
-                di_scipy['x1'] = 1.01*x_kk
-                # Prepare optional arguments to pass into loss function
-                args_ii_lb = [x_kk, 1-self.alpha/2, di_dist_args.keys(), args_ii]
-                # Swap alpha's for upper/lowerbound
-                args_ii_ub = args_ii_lb.copy()
-                args_ii_ub[1] = self.alpha/2
-                # Prepare final dict for root finding
-                di_lb = {**di_base, **di_scipy}
-                di_ub = {**di_base, **di_scipy}
-                di_lb['args'] = tuple(args_ii_lb)
-                di_ub['args'] = tuple(args_ii_ub)
-                lb_kk = float(root_scalar(**di_lb).root)
-                ub_kk = float(root_scalar(**di_ub).root)
+                # Update initializer
+                di_base['x0'] = 1.00*x_kk
+                di_base['x1'] = 1.01*x_kk
+                # Solve lowerbound
+                args_ii = [x_kk, 1-self.alpha/2, di_dist_args.keys(), di_dist_args_idx[i]]
+                di_base['args'] = tuple(args_ii)
+                lb_kk = root_scalar(**di_base).root
+                # Solve upperbound
+                args_ii[1] = self.alpha/2
+                di_base['args'] = tuple(args_ii)
+                ub_kk = root_scalar(**di_base).root
+                # Save
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk
+                # Update step
                 i += 1  
 
         elif approach == 'minimize_scalar':
             # ---- Approach #2: Point-wise gradient ---- #
-            breakpoint()
-            di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
+            di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub), 'args':()}
             di_base = {**di_base, **di_scipy}
-            # # Loop over all element points
-            # for kk in np.ndindex(x.shape):
-            #     mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
-            #     solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
-            #     di_lb = {**di_base, **{'args':solver_args}}
-            #     di_ub = deepcopy(di_lb)
-            #     di_ub['args'][4] = alpha/2
-            #     di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
-            #     lb_kk = minimize_scalar(**di_lb).x
-            #     ub_kk = minimize_scalar(**di_ub).x
-            #     ci_lb[kk] = lb_kk
-            #     ci_ub[kk] = ub_kk
+            # Loop over all element points
+            i = 0
+            for kk in np.ndindex(x.shape): 
+                # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
+                x_kk = x[kk]
+                # Solve lowerbound
+                args_ii = [x_kk, 1-self.alpha/2, di_dist_args.keys(), di_dist_args_idx[i]]
+                di_base['args'] = tuple(args_ii)
+                lb_kk = minimize_scalar(**di_base).x
+                if lb_kk < -200:
+                    minimize_scalar(fun=self._err_cdf2, bounds=(-10, 10), args=(x_kk, 0.975, ['scale'], (2,) ), method='Brent',tol=1e-10)
+                # Solve upperbound
+                args_ii[1] = self.alpha/2
+                di_base['args'] = tuple(args_ii)
+                ub_kk = minimize_scalar(**di_base).x
+                # Save
+                ci_lb[kk] = lb_kk
+                ci_ub[kk] = ub_kk
+                # Update step
+                i += 1 
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #

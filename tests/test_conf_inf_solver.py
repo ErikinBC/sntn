@@ -69,7 +69,7 @@ def test_gaussian_mu() -> None:
     di_scipy = {}
     mu_lb, mu_ub = -10, +10
     for approach in valid_approaches:
-        if approach not in ['root_scalar','root']:
+        if approach not in ['root_scalar','root','minimize_scalar']:
             print(f'Skipping {approach}')    
             continue
         methods = di_default_methods[approach]
@@ -77,6 +77,8 @@ def test_gaussian_mu() -> None:
             di_scipy['method'] = method
             # Test it
             ci_root = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=-10, mu_ub=+10)
+            if np.any(ci_root < -10):
+                breakpoint()
             is_equal(ci_root[:,0], ci_lb0, tol)
             is_equal(ci_root[:,1], ci_ub0, tol)
         print(f'Testing was successfull for approach {approach}')
