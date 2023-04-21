@@ -38,10 +38,11 @@ from sntn.utilities.utils import broastcast_max_shape, str2list, try2list, no_di
 
 # Hard-coded scipy approaches and methods
 valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
-di_default_methods = {'root':'hybr',
-                      'minimize_scalar':'Golden',
-                      'minimize':'Powell',
-                      'root_scalar':'secant'}  # Which method to use for each approach
+# First item is "recommended"
+di_default_methods = {'root':['hybr', 'lm'],
+                      'minimize_scalar':['Golden', 'Bounded', 'Brent'],
+                      'minimize':['Nelder-Mead', 'Powell', 'COBYLA','CG','BFGS','L-BFGS-B','TNC','SLSQP'],
+                      'root_scalar':['secant','bisect', 'brentq', 'brenth', 'ridder','toms748','newton']}
 no_diff(valid_approaches, di_default_methods.keys())
 
 
@@ -92,17 +93,18 @@ class conf_inf_solver():
             self.dF_dtheta = dF_dtheta
 
 
-    def _check_flatten(self, dist_kwargs:dict) -> bool:
+    @staticmethod
+    def _check_flatten(**kwargs) -> tuple:
         """
-        Used by the _err_cdf and _err_cdf2 functions to see if there is a 'flatten' argument that gets passed into dist_kwargs. Will return the boolean value of flatten, and then remove the key from the dict so as to not cause an error for the self.dist() function
+        Used by the _err_cdf and _err_cdf2 functions to see if there is a 'flatten' argument that gets passed into dist_kwargs. Will return the boolean value of flatten, and then remove the key from the dict so as to not cause an error
         """
         # Check if we will flatten
         flatten = False
-        if 'flatten' in dist_kwargs:
-            flatten = dist_kwargs['flatten']
+        if 'flatten' in kwargs:
+            flatten = kwargs['flatten']
             assert isinstance(flatten, bool), 'If flatten is added to **dist_kwargs, then it needs to a bool'
-            del dist_kwargs['flatten']  # Remove  (NOTE, WE MAY NEED TO USE A DEEP COPY HERE???)
-        return flatten
+            del kwargs['flatten']  # deepcopy not needed since passed in as **kwargs rather than kwargs:dict
+        return flatten, kwargs
 
 
     def _err_cdf(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
@@ -122,13 +124,19 @@ class conf_inf_solver():
         A np.ndarray of the same size as theta/x
         """
         if len(dist_args) > 0:
-            di_names = dist_args[0]
-            dist_kwargs = dict(zip(di_names, dist_args[1:]))
-        flatten = self._check_flatten(dist_kwargs)
+            di_names = str2list(dist_args[0])
+            if len(di_names) > 1:
+                # Will be a list of lists
+                dist_kwargs = dict(zip(di_names, dist_args[1:][0]))
+            else:
+                # Should zip fine
+                dist_kwargs = dict(zip(di_names, dist_args[1:]))
+        flatten, dist_kwargs = self._check_flatten(**dist_kwargs)
+        
         # Combine the named parameter with any other ones
-        kwargs = {**{self.param_theta:theta}, **dist_kwargs}
+        dist_kwargs[self.param_theta] = theta
         # Evaluate the error
-        err = self.dist(**kwargs).cdf(x) - alpha
+        err = self.dist(**dist_kwargs).cdf(x) - alpha
         if flatten:
             err = err.flatten()
         return err
@@ -149,7 +157,7 @@ class conf_inf_solver():
 
     def _derr_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """Wrapper for the derivative of d/dmu (F(theta) - alpha)**2 = 2*(F(theta)-alpha)*(d/dmu F(mu))"""
-        flatten = self._check_flatten(dist_kwargs)
+        flatten, dist_kwargs = self._check_flatten(**dist_kwargs)
         term1 = 2*self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         term2 = self.dF_dtheta(theta, x, alpha, *dist_args, **dist_kwargs)
         res = term1 * term2
@@ -195,7 +203,9 @@ class conf_inf_solver():
         
         # Set a default "method" for each if not supplied in the di_scipy
         if 'method' not in di_scipy:
-            di_scipy['method'] = di_default_methods[approach]
+            di_scipy['method'] = di_default_methods[approach][0]
+        else:
+            assert di_scipy['method'] in di_default_methods[approach], f'If method is provided to di_scipy, it must be one of: {di_default_methods[approach]}'
 
         # Set up the argument for the vectorized vs scalar methods
         if approach in ['minimize_scalar','root_scalar']:
@@ -210,7 +220,7 @@ class conf_inf_solver():
         else:
             # Needs to be flat for vector-base solvers
             should_flatten = True
-            di_dist_args = {k:v.flatten() for k,v in di_dist_args.items()()}
+            di_dist_args = {k:v.flatten() for k,v in di_dist_args.items()}
 
         # ---- Approach #1: Point-wise root finding ---- #
             # There are four different approaches to configure root_scalar
@@ -254,69 +264,66 @@ class conf_inf_solver():
 
         elif approach == 'minimize_scalar':
             # ---- Approach #2: Point-wise gradient ---- #
+            breakpoint()
             di_base = {'fun':self._err_cdf2, 'bounds':(mu_lb, mu_ub)}
             di_base = {**di_base, **di_scipy}
-            # Loop over all element points
-            for kk in np.ndindex(x.shape):
-                mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
-                solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
-                di_lb = {**di_base, **{'args':solver_args}}
-                di_ub = deepcopy(di_lb)
-                di_ub['args'][4] = alpha/2
-                di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
-                lb_kk = minimize_scalar(**di_lb).x
-                ub_kk = minimize_scalar(**di_ub).x
-                ci_lb[kk] = lb_kk
-                ci_ub[kk] = ub_kk
+            # # Loop over all element points
+            # for kk in np.ndindex(x.shape):
+            #     mu_kk, x_kk, sigma_kk, a_kk, b_kk = mu[kk], x[kk], sigma[kk], a[kk], b[kk]
+            #     solver_args[:4] = x_kk, sigma_kk, a_kk, b_kk
+            #     di_lb = {**di_base, **{'args':solver_args}}
+            #     di_ub = deepcopy(di_lb)
+            #     di_ub['args'][4] = alpha/2
+            #     di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+            #     lb_kk = minimize_scalar(**di_lb).x
+            #     ub_kk = minimize_scalar(**di_ub).x
+            #     ci_lb[kk] = lb_kk
+            #     ci_ub[kk] = ub_kk
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #
             di_base = {**{'fun':self._err_cdf2, 'args':solver_args, 'x0':mu.flatten()},**di_scipy}
-            if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
-                # Gradient methods
-                di_base['jac'] = self._derr_cdf2
-            elif di_scipy['method'] in ['Newton-CG', 'dogleg', 'trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']:
-                raise Warning(f"The method you have specified ({di_scipy['method']}) is not supported")
-                return None
-            else:
-                # Gradient free methods
-                assert di_scipy['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
-            # Run
-            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
-            di_lb['args'][4] = 1-alpha/2
-            di_ub['args'][4] = alpha/2
-            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
-            ci_lb = minimize(**di_lb).x
-            ci_ub = minimize(**di_ub).x
-            # Return to original size
-            ci_lb = ci_lb.reshape(x.shape)
-            ci_ub = ci_ub.reshape(x.shape)
+            # if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
+            #     # Gradient methods
+            #     di_base['jac'] = self._derr_cdf2
+            # elif di_scipy['method'] in ['Newton-CG', 'dogleg', 'trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']:
+            #     raise Warning(f"The method you have specified ({di_scipy['method']}) is not supported")
+            #     return None
+            # else:
+            #     # Gradient free methods
+            #     assert di_scipy['method'] in ['Nelder-Mead', 'Powell', 'COBYLA']
+            # # Run
+            # di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
+            # di_lb['args'][4] = 1-alpha/2
+            # di_ub['args'][4] = alpha/2
+            # di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+            # ci_lb = minimize(**di_lb).x
+            # ci_ub = minimize(**di_ub).x
+            # # Return to original size
+            # ci_lb = ci_lb.reshape(x.shape)
+            # ci_ub = ci_ub.reshape(x.shape)
 
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            # Guess some lower/upper bounds
-            c_alpha = norm.ppf(self.alpha/2)
-            x0_lb, x0_ub = self.mu + c_alpha, self.mu - c_alpha
-            di_base = {**{'fun':self._err_cdf, 'jac':self._dmu_dcdf, 'args':solver_args},**di_scipy}
-            if di_scipy['method'] in ['broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']:
-                raise Warning(f"The method you have specified ({di_scipy['method']}) is not supported")
-                del di_base['jac']
-            else:
-                assert di_scipy['method'] in ['hybr', 'lm']
-            di_lb, di_ub = deepcopy(di_base), deepcopy(di_base)
-            di_lb['args'][4] = 1-alpha/2
-            di_lb['x0'] = x0_lb.flatten()
-            di_ub['args'][4] = alpha/2
-            di_ub['x0'] = x0_ub.flatten()
-            di_lb['args'], di_ub['args'] = tuple(di_lb['args']), tuple(di_ub['args'])
+            # Prepare input dictionaries
+            arg_names = list(di_dist_args.keys()) + ['flatten']
+            arg_vals = list(di_dist_args.values()) + [True]
+            args_lb = (x, 1-self.alpha/2, arg_names, arg_vals)
+            args_ub = (x, self.alpha/2, arg_names, arg_vals)
+            di_base = {**{'fun':self._err_cdf, 'x0':x, 'jac':self.dF_dtheta, 'args':()},**di_scipy}
+            di_lb, di_ub = di_base.copy(), di_base.copy()
+            di_lb['args'] = args_lb
+            di_ub['args'] = args_ub
             ci_lb = root(**di_lb).x
             ci_ub = root(**di_ub).x
+        
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
         is_flipped = False
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
+                breakpoint()
                 raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:

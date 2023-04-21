@@ -311,3 +311,35 @@ def broastcast_max_shape(*args, **kwargs) -> Tuple:
     # Return broadcasted args
     return args
 
+
+def check_err_cdf_tol(solver, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> None:
+    """Make sure that the root/squared error is zero and the correct solution
+    
+    Parameters
+    ----------
+    solver:             The constructed conf_inf_solver class
+    theta:              Candidate CI value (i.e. upper or lower bound)
+    x:                  Observed statistic
+    alpha:              Type-I error (i.e. alpha/2)
+    dist_kwargs:        Arguments to pass into solver._{err_cdf,err_cdf0,err_cdf2,derr_cdf2}
+    """
+    has_dF_dtheta = hasattr(solver, 'dF_dtheta')
+    n = len(x)
+    nudge = 0.1
+    # Going to broadcast alpha for looping
+    _, alpha = np.broadcast_arrays(theta, alpha)
+    # Check that the "error" is zero at the true solution
+    di_eval = {**{'theta':theta.copy(), 'x':x, 'alpha':alpha}, **dist_kwargs}
+    assert np.all(solver._err_cdf(**di_eval) == 0), 'Root was not zero'
+    assert np.all(solver._err_cdf2(**di_eval) == 0), 'Squared-error was not zero'
+    for i in range(n):
+        di_eval_i = {k:v[i] for k,v in di_eval.items()}
+        assert solver._err_cdf0(**di_eval_i) == 0, 'Root (float) was not zero'
+    if has_dF_dtheta:
+        assert np.all(solver._derr_cdf2(**di_eval) == 0), 'Derivative was not zero'
+    # Check the error is non-zero at a permuted distribution
+    di_eval['theta'] += nudge
+    assert np.all(solver._err_cdf(**di_eval) != 0), 'Root was zero'
+    assert np.all(solver._err_cdf2(**di_eval) != 0), 'Squared-error was zero'
+    if has_dF_dtheta:
+        assert np.all(solver._derr_cdf2(**di_eval) != 0), 'Derivative was zero'
