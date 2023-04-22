@@ -10,8 +10,8 @@ import numpy as np
 from scipy.stats import norm
 from parameters import seed
 # Internal
-from sntn._solvers import conf_inf_solver, valid_approaches, di_default_methods
 from sntn.utilities.utils import is_equal, check_err_cdf_tol, str2list
+from sntn._solvers import conf_inf_solver, valid_approaches, di_default_methods, _process_args_kwargs_flatten
 
 # Parameter and function set up
 alpha = 0.05
@@ -20,20 +20,14 @@ eps = 1e-6
 tol = 1e-2
 
 
-#########################
-# ---- (1) GAUSSIAN --- #
+###############################
+# ---- (1A) GAUSSIAN (MU) --- #
 
 # Derivative of CDF w.r.t. mean
 def dPhi_dmu(loc:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
     """Calculate the derivative of the Gaussian CDF w.r.t. mu"""
-    if len(args) > 0:
-        di_names = str2list(args[0])
-        if len(di_names) > 1:
-            kwargs = dict(zip(di_names, args[1:][0]))
-        else:
-            kwargs = dict(zip(di_names, args[1:]))
+    flatten, kwargs = _process_args_kwargs_flatten(args, kwargs)
     assert 'scale' in kwargs, 'the named parameter "scale" must be given to dPhi_dmu'
-    flatten, kwargs = conf_inf_solver._check_flatten(**kwargs)
     z = (x-loc)/kwargs['scale']
     deriv = -norm.pdf(z) / kwargs['scale']
     if flatten:
@@ -71,18 +65,44 @@ def test_gaussian_mu() -> None:
         methods = di_default_methods[approach]
         for method in methods:
             di_scipy['method'] = method
-            ci_root = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=-10, mu_ub=+10)
+            ci_root = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=mu_lb, mu_ub=mu_ub)
             is_equal(ci_root[:,0], ci_lb0, tol)
             is_equal(ci_root[:,1], ci_ub0, tol)
         print(f'Testing was successfull for approach {approach}')
 
 
+###############################
+# ---- (1B) GAUSSIAN (SD) --- #
+
+def dPhi_dsig(scale:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
+    """Calculate the derivative of the Gaussian CDF w.r.t. mu"""
+    # Process args
+    flatten, kwargs = _process_args_kwargs_flatten(args, kwargs)
+    assert 'loc' in kwargs, 'the named parameter "loc" must be given to dPhi_dsig'
+    z = (x-kwargs['loc'])/scale
+    deriv = -z * norm.pdf(z) / scale
+    if flatten:
+        deriv = np.diag(deriv.flatten())
+    return deriv
+
+
+def test_gaussian_sig() -> None:
+    """Since increasing sigma will always """
+    # Check derivative function
+    x, mu, sd = 1, 3, 3
+    dmu_ana = dPhi_dsig(sd, x, alpha, 'loc', mu)
+    dmu_num = (norm(mu, sd+eps).cdf(x)-norm(mu, sd-eps).cdf(x))/(2*eps)
+    is_equal(dmu_ana, dmu_num)
+
+# Note that CIs are not possible, since when x-mu>0, then increasing sigma simply decreases the CDF away from 1 to a low of 0.5, since Phi(0)=0.5, whereas when x-mu<0, then increasing sigma increases the CDF away from 0 to a high of 0.5 for the same reason
+# [norm(loc=0,scale=s).cdf(1) for s in np.linspace(1e-5, 10, 20)]
+# [norm(loc=2,scale=s).cdf(1) for s in np.linspace(1e-5, 10, 20)]        
+
+
 ############################
-# ---- (2) EXPONENTIAL --- #
+# ---- (2) CHI-SQAURED --- #
 
 
-#########################
-# ---- (3) BINOMIAL --- #
 
 
 ##########################

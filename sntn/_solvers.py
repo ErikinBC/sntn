@@ -46,6 +46,34 @@ di_default_methods = {'root':['hybr', 'lm'],
 no_diff(valid_approaches, di_default_methods.keys())
 
 
+@staticmethod
+def _check_flatten(**kwargs) -> tuple:
+    """
+    Used by the _err_cdf and _err_cdf2 functions to see if there is a 'flatten' argument that gets passed into dist_kwargs. Will return the boolean value of flatten, and then remove the key from the dict so as to not cause an error
+    """
+    # Check if we will flatten
+    flatten = False
+    if 'flatten' in kwargs:
+        flatten = kwargs['flatten']
+        assert isinstance(flatten, bool), 'If flatten is added to **dist_kwargs, then it needs to a bool'
+        del kwargs['flatten']  # deepcopy not needed since passed in as **kwargs rather than kwargs:dict
+    return flatten, kwargs
+
+
+@staticmethod
+def _process_args_kwargs_flatten(args:tuple, kwargs:tuple) -> tuple:
+    """For methods that take in either an args/kwargs, processes the args as though they were kwargs, assuming that the first element in the args if the named arguments. If args is empty, will only use kwargs. Also runs a flatten check."""
+    if len(args) > 0:
+        di_names = str2list(args[0])
+        if len(di_names) > 1:
+            # Will be a list of lists
+            kwargs = dict(zip(di_names, args[1:][0]))
+        else:
+            # Should zip fine
+            kwargs = dict(zip(di_names, args[1:]))
+    # Return the flatten variable along with the kwargs
+    return _check_flatten(**kwargs)
+
 
 class conf_inf_solver():
     def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05) -> None:
@@ -93,20 +121,6 @@ class conf_inf_solver():
             self.dF_dtheta = dF_dtheta
 
 
-    @staticmethod
-    def _check_flatten(**kwargs) -> tuple:
-        """
-        Used by the _err_cdf and _err_cdf2 functions to see if there is a 'flatten' argument that gets passed into dist_kwargs. Will return the boolean value of flatten, and then remove the key from the dict so as to not cause an error
-        """
-        # Check if we will flatten
-        flatten = False
-        if 'flatten' in kwargs:
-            flatten = kwargs['flatten']
-            assert isinstance(flatten, bool), 'If flatten is added to **dist_kwargs, then it needs to a bool'
-            del kwargs['flatten']  # deepcopy not needed since passed in as **kwargs rather than kwargs:dict
-        return flatten, kwargs
-
-
     def _err_cdf(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """
         Calculates the differences between the candidate points and the CDF and the current set of parameters
@@ -123,16 +137,8 @@ class conf_inf_solver():
         -------
         A np.ndarray of the same size as theta/x
         """
-        if len(dist_args) > 0:
-            di_names = str2list(dist_args[0])
-            if len(di_names) > 1:
-                # Will be a list of lists
-                dist_kwargs = dict(zip(di_names, dist_args[1:][0]))
-            else:
-                # Should zip fine
-                dist_kwargs = dict(zip(di_names, dist_args[1:]))
-        flatten, dist_kwargs = self._check_flatten(**dist_kwargs)
-        
+        # Process the args/kwargs, and determine if need to flatten
+        flatten, dist_kwargs = _process_args_kwargs_flatten(dist_args, dist_kwargs)
         # Combine the named parameter with any other ones
         dist_kwargs[self.param_theta] = theta
         # Evaluate the error
@@ -157,7 +163,7 @@ class conf_inf_solver():
 
     def _derr_cdf2(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> np.ndarray:
         """Wrapper for the derivative of d/dmu (F(theta) - alpha)**2 = 2*(F(theta)-alpha)*(d/dmu F(mu))"""
-        flatten, dist_kwargs = self._check_flatten(**dist_kwargs)
+        flatten, dist_kwargs = _check_flatten(**dist_kwargs)
         term1 = self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         term2 = self.dF_dtheta(theta, x, alpha, *dist_args, **dist_kwargs)
         # res = 2 * term1 * term2
