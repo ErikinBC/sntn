@@ -6,10 +6,9 @@ Contains the raw methods that get wrapped in dists.py
 import numpy as np
 from scipy.stats import truncnorm, norm
 # Internal
-from sntn._solvers import _conf_int
 from sntn.utilities.grad import _log_gauss_approx, _log_diff
 from sntn.utilities.utils import broastcast_max_shape, grad_clip_abs
-
+from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
 
 class _truncnorm():
     def __init__(self, mu, sigma2, a, b) -> None:
@@ -103,27 +102,27 @@ class _tnorm():
         # Solve for vector case
         if ns_x == 1:  # No need to loop since x is just an array
             if use_a:
-                fa = self.alpha
+                fa = self._truncnorm.alpha
             if use_b:
-                fb = self.beta
+                fb = self._truncnorm.beta
             if use_sigma:
-                fsigma = self.sigma
+                fsigma = self._truncnorm.sigma
             di = dict(zip(['fa','fb','fscale'],[fa,fb,fsigma]))
             di = {k:v for k,v in di.items() if v is not None}
             a_hat, b_hat, mu_hat, sigma_hat = truncnorm.fit(x, **di)
         else:
             # Solve for matrix case
-            a_hat = self.mu * np.nan
+            a_hat = self._truncnorm.mu * np.nan
             b_hat, mu_hat, sigma_hat = a_hat.copy(), a_hat.copy(), a_hat.copy()
             # Loop over all dimensions except the first
             for kk in np.ndindex(x.shape[1:]):
                 x_kk = x[np.s_[:,] + kk]  # Extract as array
                 if use_a:
-                    fa = self.alpha[kk]
+                    fa = self._truncnorm.alpha[kk]
                 if use_b:
-                    fb = self.beta[kk]
+                    fb = self._truncnorm.beta[kk]
                 if use_sigma:
-                    fsigma = self.sigma[kk]
+                    fsigma = self._truncnorm.sigma[kk]
                 di = dict(zip(['fa','fb','fscale'],[fa,fb,fsigma]))
                 di = {k:v for k,v in di.items() if v is not None}
                 res_kk = truncnorm.fit(x_kk, **di)
@@ -135,22 +134,45 @@ class _tnorm():
         """Wrapper for scipy.stats.truncnorm(...).rvs()"""
         # When sampling it is [num_sample,*dims of parameters]
         samp_shape = (n,)
-        if self.mu.shape != (1,):  # If everything is a float, no need for a second dimension
-            samp_shape += self.mu.shape
+        if self._truncnorm.mu.shape != (1,):  # If everything is a float, no need for a second dimension
+            samp_shape += self._truncnorm.mu.shape
         return self._truncnorm.dist.rvs(samp_shape, random_state=seed)
 
     @staticmethod
-    def _dmu_dcdf(mu, x, sigma, a, b, alpha, approx, a_min, a_max, flatten:bool=False) -> np.ndarray:
+    def _dmu_dcdf(mu:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
         """
-        For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter (used by numerical optimziation soldres)
+        For a given mean/point, determine the derivative of the CDF w.r.t. the location parameter. The argument construction follows what is expected by the conf_inf_solver class
         
         dF(mu)/du = {[(phi(alpha)-phi(xi))/sigma]*z + [(phi(alpha)-phi(beta))/sigma]*[Phi(xi)-Phi(alpha)] } /z^2
         z = Phi(beta) - Phi(alpha)
 
         Parameters
         ----------
-        see 
+        mu:                 Candidate array of means
+        x:                  Realized points
+        alpha:              Type-I error values
+        args:               
+        kwargs:             See accepted kwargs below
+
+        **kwargs
+        --------
+        approx:             Should the _log_gauss_approx method be used (can help for tails of the distribution, but introduces some error)
+        a_min:              Used for gradient clipping
+        a_max:              Used for gradient clipping
         """
+        # Process the args/kwargs
+        flatten, kwargs = _process_args_kwargs_flatten(args, kwargs)
+        approx, a_min, a_max = True, None, None
+        if 'approx' in kwargs:
+            approx = kwargs['approx']
+        if 'a_min' in kwargs:
+            a_min = float(kwargs['a_min'])
+        if 'a_max' in kwargs:
+            a_max = float(kwargs['a_max'])
+        # Will error out if sigma/a/b not specified
+        sigma, a, b = kwargs['sigma'], kwargs['a'], kwargs['b']
+        # Type checks
+        assert isinstance(approx, bool), 'approx needs to be a boolean'
         # Normalize the inputs
         x_z = (x-mu)/sigma
         a_z = (a-mu)/sigma
@@ -186,11 +208,17 @@ class _tnorm():
             dFdmu = np.diag(dFdmu.flatten())
         return dFdmu
 
-    def conf_int(self, x:np.ndarray, approach:str, alpha:float=0.05, approx:bool=True, a_min:None or float=0.005, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
+    def conf_int(self, x:np.ndarray, alpha:float=0.05, approach:str='root_solver', approx:bool=True, a_min:None or float=0.005, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
         """
         Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
         Calculate the confidence interval for a series of points (x)
         """
+        solver = conf_inf_solver(dist=_tnorm, param_theta='mu',dF_dtheta=self._dmu_dcdf, alpha=alpha)
+        # Look for di_dist_args...
+
+        # Assume remainder are scipy args...
+
+        solver._conf_int(x=x,approach=approach,di_dist_args=,di_scipy=,mu_lb=,mu_ub=,fun_x=,fun_x1=)
         # res = _conf_int
         return None
 

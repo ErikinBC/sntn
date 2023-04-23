@@ -34,7 +34,7 @@ from inspect import getfullargspec
 from scipy.stats import norm
 from scipy.optimize import root, minimize_scalar, minimize, root_scalar
 # Internal modules
-from sntn.utilities.utils import broastcast_max_shape, str2list, try2list, no_diff
+from sntn.utilities.utils import broastcast_max_shape, str2list, try2list, no_diff, vprint
 
 # Hard-coded scipy approaches and methods
 valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
@@ -76,7 +76,7 @@ def _process_args_kwargs_flatten(args:tuple, kwargs:tuple) -> tuple:
 
 
 class conf_inf_solver():
-    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05) -> None:
+    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False) -> None:
         """
         The conf_inf_solver class can generate confidence intervals for a single parameter of a distribution. Specifically for a target parameter "theta":
 
@@ -108,10 +108,12 @@ class conf_inf_solver():
         assert hasattr(dist, 'cdf'), 'dist must have a cdf method'
         assert isinstance(param_theta, str), 'param_theta needs to be a string'
         assert isinstance(alpha, float) and (alpha > 0) and (alpha < 1), 'alpha must be a float, and between 0 < alpha < 1'
+        assert isinstance(verbose, bool)
         # Assign
         self.dist = dist
         self.alpha = alpha
         self.param_theta = param_theta
+        self.verbose = verbose
         self.dF_dtheta = None
         if dF_dtheta is not None:
             assert callable(dF_dtheta), 'dF_dtheta must be callable'
@@ -172,8 +174,23 @@ class conf_inf_solver():
             res = res.flatten()
         return res
 
+    @staticmethod
+    def _process_fun_x0_x1(x:float or np.ndarray, fun_x0:None or callable=None, fun_x1:None or callable=None) -> tuple or np.ndarray or None:
+        """
+        If we have a vector/float of observation values (x), and the user passes a fun_x{01} which maps x to some starting point(s), then we return those
+        """
+        x0, x1 = None, None
+        if fun_x0 is not None:
+            x0 = fun_x0(x)
+        if fun_x1 is not None:
+            x1 = fun_x1(x)
+        if x0 is not None and x1 is not None:
+            return x0, x1
+        else:
+            return x0
 
-    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000) -> np.ndarray:
+
+    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None) -> np.ndarray:
         """
         Parameters
         ----------
@@ -183,6 +200,8 @@ class conf_inf_solver():
         di_scipy:           Dictionary to be passed into scipy optimization (e.g. root(**di_scipy), di_scipy={'method':'secant'}), default=None
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI? (default=-100000)
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI? (default=+100000)
+        fun_x0:             Is there a function that should map x to a starting vector/float of x0?
+        fun_x1:             Is there a function that should map x to a starting float of x1 (see root_scalar)?
 
         Optimal approaches
         ------------------
@@ -217,7 +236,7 @@ class conf_inf_solver():
         # Set up the argument for the vectorized vs scalar methods
         if approach in ['minimize_scalar','root_scalar']:
             # Will be assigned iteratively
-            ci_lb = np.full_like(x, fill_value=np.nan)
+            ci_lb = np.zeros(x.shape) * np.nan
             ci_ub = ci_lb.copy()
             # Invert the di_dist_args so that the keys are the broadbasted index
             u_lens = set([v.shape[0] for v in di_dist_args.values()])
@@ -251,17 +270,24 @@ class conf_inf_solver():
                 di_scipy['x1'] = mu_ub
             
             # Prepare the parts of the optimization that won't change (note that di_scipy will overwrite di_base)
-            di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250, 'args':(), 'x0':0, 'x1':1}  
+            di_base = {'f':self._err_cdf0, 'xtol':1e-4, 'maxiter':250, 'args':(), 'x0':mu_lb, 'x1':mu_ub, 'bracket':(mu_lb, mu_ub)}  
             di_base = {**di_base, **di_scipy}  # Hard-coding unless specified by user based on stability experiments
             
             # Loop over all element points
             i = 0
+            n_iter = int(np.prod(x.shape))
             for kk in np.ndindex(x.shape): 
                 # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
+                vprint(f'Iteration {i+1} of {n_iter}', self.verbose and (i+1)%50==0)
                 x_kk = x[kk]
                 # Update initializer
-                di_base['x0'] = 1.00*x_kk
-                di_base['x1'] = 1.01*x_kk
+                if fun_x0 is not None:
+                    di_base['x0'] = fun_x0(x_kk)
+                if fun_x1 is not None:
+                    di_base['x1'] = fun_x1(x_kk)
+                else:
+                    if fun_x0 is not None:
+                        di_base['x1'] = di_base['x0']
                 # Solve lowerbound
                 args_ii = [x_kk, 1-self.alpha/2, di_dist_args.keys(), di_dist_args_idx[i]]
                 di_base['args'] = tuple(args_ii)
@@ -334,13 +360,16 @@ class conf_inf_solver():
             # Return to original size
             ci_lb = ci_lb.reshape(x.shape)
             ci_ub = ci_ub.reshape(x.shape)
-        
+        if np.any(np.isnan(ci_lb) | np.isnan(ci_ub)):
+            breakpoint()
+            raise Warning('Null values detected!')
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
         is_flipped = False
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
+                breakpoint()
                 raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:

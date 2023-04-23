@@ -48,9 +48,9 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=F
     # Calculate the numerical derivative
     dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
     # Run the exact analytical derivative
-    dmu_ana = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max, approx=False)
+    dmu_ana = dist._dmu_dcdf(mu, x, alpha, sigma=sigma, a=a, b=b, approx=False)
     # Run the log-approx derivative
-    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max,  approx=True)
+    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, approx=True)
     # Check for differences
     vprint(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num)):.12f}',verbose)
     vprint(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num)):.12f}',verbose)
@@ -69,14 +69,14 @@ def test_tnorm_rvs(shape:tuple or list, nsim:int=100000, tol1:float=1e-2, tol2:f
     ndec = int(-np.log10(tol1))
     # Check that theory lines up with underlying scipy dist
     x = dist.rvs(nsim, seed)
-    Z = (norm.pdf(dist.alpha)-norm.pdf(dist.beta))/(norm.cdf(dist.beta)-norm.cdf(dist.alpha))
-    mu_theory = dist.mu + Z*dist.sigma
-    med_theory = dist.mu + norm.ppf((norm.cdf(dist.beta)+norm.cdf(dist.alpha))/2)*dist.sigma
-    assert np.all(np.abs(dist.dist.mean() - mu_theory) < tol2)
-    assert np.all(np.abs(dist.dist.median() - med_theory) < tol2)
+    Z = (norm.pdf(dist._truncnorm.alpha)-norm.pdf(dist._truncnorm.beta))/(norm.cdf(dist._truncnorm.beta)-norm.cdf(dist._truncnorm.alpha))
+    mu_theory = dist._truncnorm.mu + Z*dist._truncnorm.sigma
+    med_theory = dist._truncnorm.mu + norm.ppf((norm.cdf(dist._truncnorm.beta)+norm.cdf(dist._truncnorm.alpha))/2)*dist._truncnorm.sigma
+    assert np.all(np.abs(dist._truncnorm.dist.mean() - mu_theory) < tol2)
+    assert np.all(np.abs(dist._truncnorm.dist.median() - med_theory) < tol2)
     # Compare to the simulated data
     err_mu = np.round(np.max(np.abs(np.mean(x, 0) - mu_theory)),ndec)
-    err_med = np.round(np.max(np.abs(np.median(x, 0) - dist.dist.median())),ndec)
+    err_med = np.round(np.max(np.abs(np.median(x, 0) - dist._truncnorm.dist.median())),ndec)
     assert err_mu <= tol1, f'Expected mean error to be less than {tol1}: {err_mu} for {ndec} decimal places'
     assert err_mu <= tol1, f'Expected median error to be less than {tol1}: {err_med} for {ndec} decimal places' 
 

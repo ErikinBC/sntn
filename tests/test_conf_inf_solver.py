@@ -7,7 +7,7 @@ python3 -m pytest tests/test_conf_inf_solver.py -s
 
 # External
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, binom
 from parameters import seed
 # Internal
 from sntn.utilities.utils import is_equal, check_err_cdf_tol, str2list
@@ -18,6 +18,45 @@ alpha = 0.05
 c_alpha = norm.ppf(1-alpha/2)
 eps = 1e-6
 tol = 1e-2
+
+
+##########################
+# ---- (2) BINOMIAL  --- #
+
+def test_binomial(n:int=50, p0:float=0.5, nsim:int=850, alpha:float=0.1):
+    """Make sure we can get the 'exact' CIs from the binomial distribution using root finding"""
+    # Generate data
+    dist_h0 = binom(p=p0, n=n)
+    n_obs = dist_h0.rvs(nsim, random_state=seed)
+    p_obs = n_obs / n
+
+    # Naive approach
+    p_ci_q = np.c_[binom(p=p_obs, n=n).ppf(alpha/2) / n,
+                binom(p=p_obs, n=n).ppf(1-alpha/2) / n]
+    # We get a coverage which is much larger than expected
+    cover_q = np.mean((p_ci_q[:,0] <= p0) & (p0 <= p_ci_q[:,1]))
+    # Calculate the p-value expected a 100(1-alpha)% coverage....
+    dist_cover = binom(p=1-alpha, n=nsim)
+    pval_cover = dist_cover.cdf(nsim*cover_q)
+    pval_cover = 2*min(pval_cover, 1-pval_cover)  # two-sided
+    assert pval_cover <= alpha, 'expected to reject null'
+
+
+    # Use the conf_inf_solver instead
+    find_ci = conf_inf_solver(dist=binom, param_theta='p', alpha=alpha, verbose=True)
+    # Because binom uses .cdf(p*n), we need to convert the p's to number of actual of realiziation
+    def fun_x0(x):
+        return x / n * 0.9 
+
+    def fun_x1(x):
+        return min(x / n * 1.1, 1-1e-3)
+
+    p_ci_root = find_ci._conf_int(x=n_obs,approach='root_scalar',di_dist_args={'n':n},di_scipy={'method':'secant'}, mu_lb=1e-3, mu_ub=1-1e-3, fun_x0=fun_x0, fun_x1=fun_x1)
+    cover_root = np.mean((p_ci_root[:,0] <= p0) & (p0 <= p_ci_root[:,1]))
+    pval_root = dist_cover.cdf(nsim*cover_root)
+    pval_root = 2*min(pval_root, 1-pval_root)  # two-sided
+    assert pval_root > alpha, 'expected to NOT reject null'
+
 
 
 ###############################
@@ -58,6 +97,10 @@ def test_gaussian_mu() -> None:
     check_err_cdf_tol(solver=solver, theta=ci_ub0, x=x, alpha=alpha/2, **dist_kwargs)
 
     # Check that the solver._conf_int method gets the same results
+    def fun_x0(x):
+        return x * 1.0 
+    def fun_x1(x):
+        return x * 1.01
     di_dist_args = {'scale':sd}
     di_scipy = {}
     mu_lb, mu_ub = -10, +10
@@ -65,7 +108,7 @@ def test_gaussian_mu() -> None:
         methods = di_default_methods[approach]
         for method in methods:
             di_scipy['method'] = method
-            ci_root = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=mu_lb, mu_ub=mu_ub)
+            ci_root = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=mu_lb, mu_ub=mu_ub, fun_x0=fun_x0, fun_x1=fun_x1)
             is_equal(ci_root[:,0], ci_lb0, tol)
             is_equal(ci_root[:,1], ci_ub0, tol)
         print(f'Testing was successfull for approach {approach}')
@@ -96,21 +139,12 @@ def test_gaussian_sig() -> None:
 
 # Note that CIs are not possible, since when x-mu>0, then increasing sigma simply decreases the CDF away from 1 to a low of 0.5, since Phi(0)=0.5, whereas when x-mu<0, then increasing sigma increases the CDF away from 0 to a high of 0.5 for the same reason
 # [norm(loc=0,scale=s).cdf(1) for s in np.linspace(1e-5, 10, 20)]
-# [norm(loc=2,scale=s).cdf(1) for s in np.linspace(1e-5, 10, 20)]        
-
-
-############################
-# ---- (2) CHI-SQAURED --- #
-
-
-
-
-##########################
-# ---- (4) TRUNCNORM --- #
-
+# [norm(loc=2,scale=s).cdf(1) for s in np.linspace(1e-5, 10, 20)]
 
 
 if __name__ == "__main__":
     test_gaussian_mu()
+    test_gaussian_sig()
+    test_binomial()
 
     print('~~~ The test_conf_inf_solver.py script worked successfully ~~~')
