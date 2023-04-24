@@ -15,6 +15,7 @@ from scipy.stats import norm, kstest
 from sntn.dists import tnorm
 from parameters import seed, dir_simulations
 from sntn.utilities.utils import vprint, is_equal
+from sntn._solvers import di_default_methods
 
 # Parameters recycled
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
@@ -39,7 +40,6 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
     """Check that the numerical derivatives align with analytical ones"""
     mu, sigma2, a, b = gen_params(shape, seed)
-    sigma = sigma2 ** 0.5
     alpha, a_min, a_max = 0.05, None, None
     dist = tnorm(mu, sigma2, a, b)
     dist_plus = tnorm(mu+eps, sigma2, a, b)
@@ -48,9 +48,9 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=F
     # Calculate the numerical derivative
     dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
     # Run the exact analytical derivative
-    dmu_ana = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max, approx=False)
+    dmu_ana = dist._dmu_dcdf(mu, x, alpha, sigma2=sigma2, a=a, b=b, approx=False)
     # Run the log-approx derivative
-    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, a_min=a_min, a_max=a_max,  approx=True)
+    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma2=sigma2, a=a, b=b, alpha=alpha, approx=True)
     # Check for differences
     vprint(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num)):.12f}',verbose)
     vprint(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num)):.12f}',verbose)
@@ -69,14 +69,14 @@ def test_tnorm_rvs(shape:tuple or list, nsim:int=100000, tol1:float=1e-2, tol2:f
     ndec = int(-np.log10(tol1))
     # Check that theory lines up with underlying scipy dist
     x = dist.rvs(nsim, seed)
-    Z = (norm.pdf(dist.alpha)-norm.pdf(dist.beta))/(norm.cdf(dist.beta)-norm.cdf(dist.alpha))
-    mu_theory = dist.mu + Z*dist.sigma
-    med_theory = dist.mu + norm.ppf((norm.cdf(dist.beta)+norm.cdf(dist.alpha))/2)*dist.sigma
-    assert np.all(np.abs(dist.dist.mean() - mu_theory) < tol2)
-    assert np.all(np.abs(dist.dist.median() - med_theory) < tol2)
+    Z = (norm.pdf(dist._truncnorm.alpha)-norm.pdf(dist._truncnorm.beta))/(norm.cdf(dist._truncnorm.beta)-norm.cdf(dist._truncnorm.alpha))
+    mu_theory = dist._truncnorm.mu + Z*dist._truncnorm.sigma
+    med_theory = dist._truncnorm.mu + norm.ppf((norm.cdf(dist._truncnorm.beta)+norm.cdf(dist._truncnorm.alpha))/2)*dist._truncnorm.sigma
+    assert np.all(np.abs(dist._truncnorm.dist.mean() - mu_theory) < tol2)
+    assert np.all(np.abs(dist._truncnorm.dist.median() - med_theory) < tol2)
     # Compare to the simulated data
     err_mu = np.round(np.max(np.abs(np.mean(x, 0) - mu_theory)),ndec)
-    err_med = np.round(np.max(np.abs(np.median(x, 0) - dist.dist.median())),ndec)
+    err_med = np.round(np.max(np.abs(np.median(x, 0) - dist._truncnorm.dist.median())),ndec)
     assert err_mu <= tol1, f'Expected mean error to be less than {tol1}: {err_mu} for {ndec} decimal places'
     assert err_mu <= tol1, f'Expected median error to be less than {tol1}: {err_med} for {ndec} decimal places' 
 
@@ -125,7 +125,7 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
 
 params_CI = [ ((1,), 5), ((5,), 1), ((3,2), 1), ((2,2,2), 1) ]
 @pytest.mark.parametrize('n,ndraw', params_CI)
-def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
+def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
     """Check that the confidence interval is working as expected"""
     print(f'n={n}, ndraw={ndraw}')
     # Generate data
@@ -135,35 +135,42 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     x = dist.rvs(ndraw, seed)
 
     # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
-    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant', 'newton']
+    methods_root_scalar = di_default_methods['root_scalar']
     holder_root_scalar = []
     for method in methods_root_scalar:
         print(f'Testing method {method} for root_scalar')
-        res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
+        di_scipy = {'method':method}
+        if method == 'newton':
+            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b, a_min=1e-5, a_max=np.inf)
+        else:
+            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
 
-    # (ii) "minimizer_scalar" appraoch
-    methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
+    # (ii) "minimize_scalar" approach
+    methods_minimize_scalar = di_default_methods['minimize_scalar']
     holder_minimize_scalar = []
     for method in methods_minimize_scalar:
         print(f'Testing method {method} for minimize_scalar')
-        res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='minimize_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_minimize_scalar.append(res)
     res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
+
     # (iii) "minimize" approach 
-    methods_minimize = ['L-BFGS-B','BFGS','TNC','SLSQP','Nelder-Mead', 'Powell', 'COBYLA']
+    methods_minimize = di_default_methods['minimize']
     holder_minimize = []
     for method in methods_minimize:
         print(f'Testing method {method} for minimize')
-        res = dist.get_CI(x=x, approach='minimize', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='minimize', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)        
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
@@ -171,17 +178,18 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
 
     # (iv) Check "root" approach
-    methods_root = ['hybr', 'lm']
+    methods_root = di_default_methods['root']
     holder_root = []
     for method in methods_root:
         print(f'Testing method {method} for root')
-        res = dist.get_CI(x=x, approach='root', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='root', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root.append(res)
     res_root = pd.concat(holder_root).assign(approach='root')
-    
+
     # Combine and save results
     res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
     # Determine the index
@@ -196,20 +204,29 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
 
 
 if __name__ == "__main__":
-    # test_tnorm_cdf()
-    # test_tnorm_ppf()
+    print('--- test_tnorm_cdf ---')
+    test_tnorm_cdf()
 
-    # for param in params_tnorm_fit:
-    #     test_tnorm_fit(param, use_sigma=True)
+    print('--- test_tnorm_ppf ---')
+    test_tnorm_ppf()
 
-    # # Loop over rvs params
-    # for param in params_tnorm_rvs:
-    #     print(f'param={param}')
-    #     test_dmu(param)
-    #     test_tnorm_rvs(param)
+    print('--- test_tnorm_fit ---')
+    for param in params_tnorm_fit:
+        test_tnorm_fit(param, use_sigma=True)
+
+    print('--- test_dmu ---')
+    for param in params_tnorm_rvs:
+        print(f'param={param}')
+        test_dmu(param)
+
+    print('--- test_tnorm_rvs ---')
+    for param in params_tnorm_rvs:
+        print(f'param={param}')
+        test_tnorm_rvs(param)
     
+    print('--- test_tnorm_CI ---')
     for param in params_CI:
         n, ndraw = param[0], param[1]
         test_tnorm_CI(n, ndraw) 
 
-    print('~~~ The test_dists.py script worked successfully ~~~')
+    print('~~~ The test_dists_tnorm.py script worked successfully ~~~')

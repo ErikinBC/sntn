@@ -11,6 +11,18 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def no_diff(x, y):
+    assert set(x) == set(y) and len(x) == len(y), 'x and y do not have the same elements'
+
+
+def try2list(x) -> list or tuple:
+    """If x is not a list or a tuple, return as a list"""
+    if not (isinstance(x, list) or isinstance(x, tuple)):
+        return [x]
+    else:
+        return x
+
+
 def str2list(x:str or list) -> list:
     """
     If x is a string, convert to a list
@@ -61,7 +73,10 @@ def mean_total_error(x:np.ndarray) -> float:
 
 def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:
     """Return the absolute value of a gradient value either rounded up or down (a_min/a_max should be positive)"""
-    if (a_min is None) and (a_max is None):
+    if isinstance(a_min, np.ndarray) and isinstance(a_max, np.ndarray):
+        if None in a_min and None in a_max:
+            return x
+    elif (a_min is None) and (a_max is None):
         return x
     sx = np.sign(x)
     cx = sx * np.clip(np.abs(x), a_min, a_max)
@@ -240,15 +255,27 @@ def get_max_shape(*args) -> list:
     return shape_star
 
 
-
-def broastcast_max_shape(*args, verbose=False) -> Tuple:
+def broastcast_max_shape(*args, **kwargs) -> Tuple:
     """
     Takes an arbitrary number of *args in, and will try to broadcast into the max shape. Will return list of the same length. For example is args=(1, [1,2,3]) then will return (array(1,2,3), array(1,2,3)).
     """
-    # Input checks
-    assert len(args) > 0, 'Please specify at least one *args'
-    # assert not any([isinstance(a,list) or isinstance(a, tuple) for a in args]), 'One of the *args was found to be a list or a tuple, please make sure you specify *args if args is a list'
+    # --- Input checks --- #
+    assert len(args) > 0 or len(kwargs) > 0, 'Please specify at least one *args'
+    if 'verbose' in kwargs:
+        verbose = kwargs['verbose']
+        del kwargs['verbose']
+    else:
+        verbose = False
+    assert isinstance(verbose, bool), 'verbose needs to be a boolean if specified'
+
+    # --- Merge args/kwargs together --- #
+    if len(kwargs) > 0:
+        args += tuple(kwargs.values())
     
+    # --- Ensure minimum dim --- #
+    args = [np.atleast_1d(a) for a in args]
+
+    # --- Modify each element --- #
     # Determine max shape 
     max_shape = get_max_shape(*args)
     # get the # of dimensions (n), the largest dimension (d), and total # of data points (t)
@@ -286,5 +313,39 @@ def broastcast_max_shape(*args, verbose=False) -> Tuple:
         # Check and then update
         assert args_i.shape == max_shape, f'Woops expected {args_i.shape} == {max_shape}'
         args[i] = args_i
+    
     # Return broadcasted args
     return args
+
+
+def check_err_cdf_tol(solver, theta:np.ndarray, x:np.ndarray, alpha:float, **dist_kwargs) -> None:
+    """Make sure that the root/squared error is zero and the correct solution
+    
+    Parameters
+    ----------
+    solver:             The constructed conf_inf_solver class
+    theta:              Candidate CI value (i.e. upper or lower bound)
+    x:                  Observed statistic
+    alpha:              Type-I error (i.e. alpha/2)
+    dist_kwargs:        Arguments to pass into solver._{err_cdf,err_cdf0,err_cdf2,derr_cdf2}
+    """
+    has_dF_dtheta = hasattr(solver, 'dF_dtheta')
+    n = len(x)
+    nudge = 0.1
+    # Going to broadcast alpha for looping
+    _, alpha = np.broadcast_arrays(theta, alpha)
+    # Check that the "error" is zero at the true solution
+    di_eval = {**{'theta':theta.copy(), 'x':x, 'alpha':alpha}, **dist_kwargs}
+    assert np.all(solver._err_cdf(**di_eval) == 0), 'Root was not zero'
+    assert np.all(solver._err_cdf2(**di_eval) == 0), 'Squared-error was not zero'
+    for i in range(n):
+        di_eval_i = {k:v[i] for k,v in di_eval.items()}
+        assert solver._err_cdf0(**di_eval_i) == 0, 'Root (float) was not zero'
+    if has_dF_dtheta:
+        assert np.all(solver._derr_cdf2(**di_eval) == 0), 'Derivative was not zero'
+    # Check the error is non-zero at a permuted distribution
+    di_eval['theta'] += nudge
+    assert np.all(solver._err_cdf(**di_eval) != 0), 'Root was zero'
+    assert np.all(solver._err_cdf2(**di_eval) != 0), 'Squared-error was zero'
+    if has_dF_dtheta:
+        assert np.all(solver._derr_cdf2(**di_eval) != 0), 'Derivative was zero'
