@@ -258,7 +258,7 @@ class conf_inf_solver():
             di_dist_args = {k:v.flatten() for k,v in di_dist_args.items()}
             arg_names = list(di_dist_args.keys()) + ['flatten']
             arg_vals = list(di_dist_args.values()) + [should_flatten]
-            arg_vec = [x, None, arg_names, arg_vals]
+            arg_vec = [x.flatten(), None, arg_names, arg_vals]
             
 
         # ---- Approach #1: Point-wise root finding ---- #

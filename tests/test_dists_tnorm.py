@@ -40,7 +40,6 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
     """Check that the numerical derivatives align with analytical ones"""
     mu, sigma2, a, b = gen_params(shape, seed)
-    sigma = sigma2 ** 0.5
     alpha, a_min, a_max = 0.05, None, None
     dist = tnorm(mu, sigma2, a, b)
     dist_plus = tnorm(mu+eps, sigma2, a, b)
@@ -49,9 +48,9 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=F
     # Calculate the numerical derivative
     dmu_num = (dist_plus.cdf(x)-dist_minus.cdf(x))/(2*eps)
     # Run the exact analytical derivative
-    dmu_ana = dist._dmu_dcdf(mu, x, alpha, sigma=sigma, a=a, b=b, approx=False)
+    dmu_ana = dist._dmu_dcdf(mu, x, alpha, sigma2=sigma2, a=a, b=b, approx=False)
     # Run the log-approx derivative
-    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma=sigma, a=a, b=b, alpha=alpha, approx=True)
+    dmu_approx = dist._dmu_dcdf(mu=mu, x=x, sigma2=sigma2, a=a, b=b, alpha=alpha, approx=True)
     # Check for differences
     vprint(f'Largest error b/w analytic and exact : {np.max(np.abs(dmu_ana - dmu_num)):.12f}',verbose)
     vprint(f'Largest error b/w exact and approx : {np.max(np.abs(dmu_approx - dmu_num)):.12f}',verbose)
@@ -124,7 +123,6 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
-#
 params_CI = [ ((1,), 5), ((5,), 1), ((3,2), 1), ((2,2,2), 1) ]
 @pytest.mark.parametrize('n,ndraw', params_CI)
 def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
@@ -151,26 +149,28 @@ def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
-    breakpoint()
 
-    # (ii) "minimizer_scalar" appraoch
-    methods_minimize_scalar = di_default_methods['minimizer_scalar']
+    # (ii) "minimize_scalar" approach
+    methods_minimize_scalar = di_default_methods['minimize_scalar']
     holder_minimize_scalar = []
     for method in methods_minimize_scalar:
         print(f'Testing method {method} for minimize_scalar')
-        res = dist.get_CI(x=x, approach='minimize_scalar', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='minimize_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_minimize_scalar.append(res)
     res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
+
     # (iii) "minimize" approach 
-    methods_minimize = di_default_methods['minmize']
+    methods_minimize = di_default_methods['minimize']
     holder_minimize = []
     for method in methods_minimize:
         print(f'Testing method {method} for minimize')
-        res = dist.get_CI(x=x, approach='minimize', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='minimize', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)        
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
@@ -182,13 +182,14 @@ def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
     holder_root = []
     for method in methods_root:
         print(f'Testing method {method} for root')
-        res = dist.get_CI(x=x, approach='root', method=method)
+        di_scipy = {'method':method}
+        res = dist.conf_int(x=x, alpha=alpha, approach='root', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root.append(res)
     res_root = pd.concat(holder_root).assign(approach='root')
-    
+
     # Combine and save results
     res_all = pd.concat(objs=[res_root_scalar, res_minimize, res_minimize_scalar, res_root])
     # Determine the index
@@ -203,20 +204,29 @@ def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
 
 
 if __name__ == "__main__":
-    # test_tnorm_cdf()
-    # test_tnorm_ppf()
+    print('--- test_tnorm_cdf ---')
+    test_tnorm_cdf()
 
-    # for param in params_tnorm_fit:
-    #     test_tnorm_fit(param, use_sigma=True)
+    print('--- test_tnorm_ppf ---')
+    test_tnorm_ppf()
 
-    # # Loop over rvs params
-    # for param in params_tnorm_rvs:
-    #     print(f'param={param}')
-    #     test_dmu(param)
-    #     test_tnorm_rvs(param)
+    print('--- test_tnorm_fit ---')
+    for param in params_tnorm_fit:
+        test_tnorm_fit(param, use_sigma=True)
+
+    print('--- test_dmu ---')
+    for param in params_tnorm_rvs:
+        print(f'param={param}')
+        test_dmu(param)
+
+    print('--- test_tnorm_rvs ---')
+    for param in params_tnorm_rvs:
+        print(f'param={param}')
+        test_tnorm_rvs(param)
     
+    print('--- test_tnorm_CI ---')
     for param in params_CI:
         n, ndraw = param[0], param[1]
         test_tnorm_CI(n, ndraw) 
 
-    print('~~~ The test_dists.py script worked successfully ~~~')
+    print('~~~ The test_dists_tnorm.py script worked successfully ~~~')

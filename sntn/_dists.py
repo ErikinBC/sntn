@@ -165,7 +165,14 @@ class _tnorm():
         flatten, kwargs = _process_args_kwargs_flatten(args, kwargs)
         approx, a_min, a_max = True, None, None
         if 'approx' in kwargs:
-            approx = kwargs['approx']
+            if isinstance(kwargs['approx'], np.ndarray):
+                approx = bool(kwargs['approx'][0])
+            else:
+                approx = kwargs['approx']
+            try:
+                assert isinstance(approx, bool), 'approx needs to be a bool'
+            except:
+                breakpoint()
         if 'a_min' in kwargs:
             a_min = kwargs['a_min']
         if 'a_max' in kwargs:
