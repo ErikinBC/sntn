@@ -5,7 +5,7 @@ i) Which solvers should be considered for further testing?
 ii) Which solvers get the right coverage and which is the fastest?
 iii) Does the built in "fit" method work?
 
-python3 -m simulations.tnorm
+python3 -m simulations.sim_tnorm
 """
 
 # External
@@ -94,9 +94,13 @@ for j, n in enumerate(n_draw):
     holder_params.append(dat_params)
     for i, r in methods_test.iterrows():
         approach, method = r['approach'], r['method']
+        di_scipy = {'method':method}
         # Fit and draw data
         ci_stime = time()
-        res = dist.get_CI(x, approach=approach, method=method)
+        if method == 'newton':
+            res = dist.conf_int(x=x, alpha=alpha, approach=approach, di_scipy=di_scipy, approx=True, sigma2=sigma2, a=a, b=b, a_min=1e-5, a_max=np.inf)
+        else:
+            res = dist.conf_int(x=x, alpha=alpha, approach=approach, di_scipy=di_scipy, approx=True, sigma2=sigma2, a=a, b=b)
         ci_time = time() - ci_stime
         res = pd.DataFrame(res,columns=['lb','ub'])
         res = res.assign(approach=approach, method=method, dtime=ci_time, n=n)

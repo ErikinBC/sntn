@@ -41,7 +41,7 @@ valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
 # First item is "recommended"
 di_default_methods = {'root':['hybr', 'lm'],
                       'minimize_scalar':['Golden', 'Bounded', 'Brent'],
-                      'minimize':['Powell','COBYLA','L-BFGS-B'], # ,'Nelder-Mead','BFGS','TNC','SLSQP','CG'
+                      'minimize':['Powell','COBYLA','L-BFGS-B'],
                       'root_scalar':['secant','bisect', 'brentq', 'brenth', 'ridder','toms748','newton']}
 no_diff(valid_approaches, di_default_methods.keys())
 
@@ -210,8 +210,9 @@ class conf_inf_solver():
         Optimal approaches
         ------------------
         approach            method          notes
-        root_scalar         secant          Optimal speed/accuracy
-        minimize_scalar     Golden          Slower, but best accuracy
+        root_scalar         secant          More robust, slightly less accurate/speed
+        root_scalar         newton          A bit slower than root_scalar, but can be more accurate, requires a_min/a_max tuning
+        root                hybr            Faster, more accurate, but can blow up sometimes
 
 
         Returns
