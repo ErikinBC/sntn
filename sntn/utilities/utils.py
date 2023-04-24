@@ -73,7 +73,10 @@ def mean_total_error(x:np.ndarray) -> float:
 
 def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:
     """Return the absolute value of a gradient value either rounded up or down (a_min/a_max should be positive)"""
-    if (a_min is None) and (a_max is None):
+    if isinstance(a_min, np.ndarray) and isinstance(a_max, np.ndarray):
+        if None in a_min and None in a_max:
+            return x
+    elif (a_min is None) and (a_max is None):
         return x
     sx = np.sign(x)
     cx = sx * np.clip(np.abs(x), a_min, a_max)
@@ -268,6 +271,9 @@ def broastcast_max_shape(*args, **kwargs) -> Tuple:
     # --- Merge args/kwargs together --- #
     if len(kwargs) > 0:
         args += tuple(kwargs.values())
+    
+    # --- Ensure minimum dim --- #
+    args = [np.atleast_1d(a) for a in args]
 
     # --- Modify each element --- #
     # Determine max shape 

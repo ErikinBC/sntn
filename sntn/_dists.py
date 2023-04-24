@@ -41,7 +41,7 @@ class _truncnorm():
 
 
 class _tnorm():
-    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int) -> None:
+    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int, **kwargs) -> None:
         """
         Main model class for the truncated normal distribution
 
@@ -51,6 +51,7 @@ class _tnorm():
         sigma2:             Variance of the truncated normal (can be array)
         a:                  Lower bounds of truncated normal (can be -infty)
         b:                  Upperbounds of truncated normal (can be +infty)
+        kwargs:             Supported to absorb extranous parameters
 
         Attributes
         ----------
@@ -69,15 +70,15 @@ class _tnorm():
         self._truncnorm = _truncnorm(mu, sigma2, a, b)
 
 
-    def cdf(self, x:np.ndarray) -> np.ndarray:
+    def cdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).cdf()"""
         return self._truncnorm.dist.cdf(x)
 
-    def ppf(self, x:np.ndarray) -> np.ndarray:
+    def ppf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).ppf()"""
         return self._truncnorm.dist.ppf(x)
 
-    def pdf(self, x:np.ndarray) -> np.ndarray:
+    def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).pdf()"""
         return self._truncnorm.dist.pdf(x)
 
@@ -166,13 +167,14 @@ class _tnorm():
         if 'approx' in kwargs:
             approx = kwargs['approx']
         if 'a_min' in kwargs:
-            a_min = float(kwargs['a_min'])
+            a_min = kwargs['a_min']
         if 'a_max' in kwargs:
-            a_max = float(kwargs['a_max'])
+            a_max = kwargs['a_max']
         # Will error out if sigma/a/b not specified
-        sigma, a, b = kwargs['sigma'], kwargs['a'], kwargs['b']
+        sigma2, a, b = kwargs['sigma2'], kwargs['a'], kwargs['b']
+        sigma = np.sqrt(sigma2)
         # Type checks
-        assert isinstance(approx, bool), 'approx needs to be a boolean'
+        assert np.asarray(approx).dtype==bool, 'approx needs to be a boolean'
         # Normalize the inputs
         x_z = (x-mu)/sigma
         a_z = (a-mu)/sigma
@@ -208,18 +210,56 @@ class _tnorm():
             dFdmu = np.diag(dFdmu.flatten())
         return dFdmu
 
-    def conf_int(self, x:np.ndarray, alpha:float=0.05, approach:str='root_solver', approx:bool=True, a_min:None or float=0.005, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, **kwargs) -> np.ndarray:
+    @staticmethod
+    def _find_dist_kwargs(**kwargs) -> tuple:
+        """Looks for valid truncated normal distribution keywords Returns sigma, a, b"""
+        sigma2, a, b = kwargs['sigma2'], kwargs['a'], kwargs['b']
+        return sigma2, a, b
+
+
+    @staticmethod
+    def _return_x01_funs(fun_x01_type:str) -> tuple:
+        """Return the two fun_x{01} to be based into CI solver to find initialization points"""
+        valid_types = ['nudge','bounds']
+        assert fun_x01_type in valid_types, f'If fun_x01_type is specified it must be one of {valid_types}'
+        if fun_x01_type == 'nudge':
+            fun_x0 = lambda x: np.atleast_1d(x) *1.0
+            fun_x1 = lambda x: np.atleast_1d(x) *1.01
+        else:
+            # The default initialization of x0:mu_lb, x1:mu_ub will be presevred
+            fun_x0, fun_x1 = None, None
+        return fun_x0, fun_x1
+
+
+    def conf_int(self, x:np.ndarray, alpha:float=0.05, approach:str='root_solver', approx:bool=True, a_min:None or float=None, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, di_scipy:dict={}, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', **kwargs) -> np.ndarray:
         """
         Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
         Calculate the confidence interval for a series of points (x)
+
+        Arguments
+        ---------
+        See sntn._solvers._conf_int
+        fun_x01_type:       Whether a special x to initialization mapping should be applied (default='nudge'). See below. Will be ignored if fun_x{01} is provided
+
+        fun_x01_type
+        ------------
+        nudge:          x0 -> x0, x1 -> 1.01*x1
+        bounds:         x0 -> mu_lb, x -> mu_ub
         """
         solver = conf_inf_solver(dist=_tnorm, param_theta='mu',dF_dtheta=self._dmu_dcdf, alpha=alpha)
-        # Look for di_dist_args...
-
-        # Assume remainder are scipy args...
-
-        solver._conf_int(x=x,approach=approach,di_dist_args=,di_scipy=,mu_lb=,mu_ub=,fun_x=,fun_x1=)
-        # res = _conf_int
-        return None
+        # Set up di_dist_args
+        sigma2, a, b = self._find_dist_kwargs(**kwargs)
+        di_dist_args = {'sigma2':sigma2, 'a':a, 'b':b}
+        di_dist_args['a_min'] = a_min
+        di_dist_args['a_max'] = a_max
+        di_dist_args['approx'] = approx
+        # Get x-initiatization mapping functions
+        if fun_x0 is None and fun_x1 is None:
+            fun_x0, fun_x1 = self._return_x01_funs(fun_x01_type)
+        # Run CI solver
+        # breakpoint()
+        res = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=mu_lb,mu_ub=mu_ub, fun_x0=fun_x0, fun_x1=fun_x1)
+        # Return matrix of values
+        return res
 
 

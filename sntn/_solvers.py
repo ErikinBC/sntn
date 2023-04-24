@@ -152,7 +152,11 @@ class conf_inf_solver():
 
     def _err_cdf0(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> float:
         """Wrapper for _err_cdd to return a float"""
-        res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
+        try:
+            res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
+        except:
+            breakpoint()
+            self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         return res
 
 
@@ -238,11 +242,12 @@ class conf_inf_solver():
             # Will be assigned iteratively
             ci_lb = np.zeros(x.shape) * np.nan
             ci_ub = ci_lb.copy()
-            # Invert the di_dist_args so that the keys are the broadbasted index
+            # Invert the di_dist_args so that the keys are the broadcasted index
             u_lens = set([v.shape[0] for v in di_dist_args.values()])
             assert len(u_lens) == 1, 'Multiple lengths found for di_dist_args, please make sure they are broadcastable to the same length'
             new_keys = range(list(u_lens)[0])
-            di_dist_args_idx = {i: tuple([di_dist_args[key][i] for key in di_dist_args.keys()]) for i in new_keys}
+            di_dist_args_idx = {i: tuple([np.atleast_1d(di_dist_args[key][j]) for key in di_dist_args.keys()]) for i, j in enumerate(np.ndindex(x.shape))}
+            # di_dist_args_idx = {i: tuple([di_dist_args[key][i] for key in di_dist_args.keys()]) for i in new_keys}
         else:
             # Needs to be flat for vector-base solvers
             assert approach in ['root','minimize'], 'expected the vector solvers'
@@ -281,13 +286,8 @@ class conf_inf_solver():
                 vprint(f'Iteration {i+1} of {n_iter}', self.verbose and (i+1)%50==0)
                 x_kk = x[kk]
                 # Update initializer
-                if fun_x0 is not None:
-                    di_base['x0'] = fun_x0(x_kk)
-                if fun_x1 is not None:
-                    di_base['x1'] = fun_x1(x_kk)
-                else:
-                    if fun_x0 is not None:
-                        di_base['x1'] = di_base['x0']
+                x0_kk, x1_kk = self._process_fun_x0_x1(x_kk, fun_x0, fun_x1)
+                di_base['x0'], di_base['x1'] = x0_kk, x1_kk
                 # Solve lowerbound
                 args_ii = [x_kk, 1-self.alpha/2, di_dist_args.keys(), di_dist_args_idx[i]]
                 di_base['args'] = tuple(args_ii)

@@ -15,6 +15,7 @@ from scipy.stats import norm, kstest
 from sntn.dists import tnorm
 from parameters import seed, dir_simulations
 from sntn.utilities.utils import vprint, is_equal
+from sntn._solvers import di_default_methods
 
 # Parameters recycled
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
@@ -123,9 +124,10 @@ def test_tnorm_fit(n:int, use_sigma:bool=True, nsim:int=50000, tol:float=1e-3) -
     assert mx_err <= tol, f'Expected maximum error to be less than {tol}: {mx_err} ({mu[idx_fail][0], sigma2[idx_fail][0], a[idx_fail][0], b[idx_fail][0]})'
 
 
+#
 params_CI = [ ((1,), 5), ((5,), 1), ((3,2), 1), ((2,2,2), 1) ]
 @pytest.mark.parametrize('n,ndraw', params_CI)
-def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
+def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
     """Check that the confidence interval is working as expected"""
     print(f'n={n}, ndraw={ndraw}')
     # Generate data
@@ -135,19 +137,24 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     x = dist.rvs(ndraw, seed)
 
     # (i) "root_scalar" apprach (ignoring 'halley' since it requires Hessian)
-    methods_root_scalar = ['bisect', 'brentq', 'brenth', 'ridder','toms748', 'secant', 'newton']
+    methods_root_scalar = di_default_methods['root_scalar']
     holder_root_scalar = []
     for method in methods_root_scalar:
         print(f'Testing method {method} for root_scalar')
-        res = dist.get_CI(x=x, approach='root_scalar', method=method, approx=approx)
+        di_scipy = {'method':method}
+        if method == 'newton':
+            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b, a_min=1e-5, a_max=np.inf)
+        else:
+            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:
             res = res.reshape([int(np.prod(n)), 2])
         res = pd.DataFrame(res,columns=['lb','ub']).assign(method=method)
         holder_root_scalar.append(res)
     res_root_scalar = pd.concat(holder_root_scalar).assign(approach='root_scalar')
+    breakpoint()
 
     # (ii) "minimizer_scalar" appraoch
-    methods_minimize_scalar = ['Brent', 'Bounded', 'Golden']
+    methods_minimize_scalar = di_default_methods['minimizer_scalar']
     holder_minimize_scalar = []
     for method in methods_minimize_scalar:
         print(f'Testing method {method} for minimize_scalar')
@@ -159,7 +166,7 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     res_minimize_scalar = pd.concat(holder_minimize_scalar).assign(approach='minimize_scalar')
 
     # (iii) "minimize" approach 
-    methods_minimize = ['L-BFGS-B','BFGS','TNC','SLSQP','Nelder-Mead', 'Powell', 'COBYLA']
+    methods_minimize = di_default_methods['minmize']
     holder_minimize = []
     for method in methods_minimize:
         print(f'Testing method {method} for minimize')
@@ -171,7 +178,7 @@ def test_tnorm_CI(n, ndraw, approx:bool=True) -> None:
     res_minimize = pd.concat(holder_minimize).assign(approach='minimize')
 
     # (iv) Check "root" approach
-    methods_root = ['hybr', 'lm']
+    methods_root = di_default_methods['root']
     holder_root = []
     for method in methods_root:
         print(f'Testing method {method} for root')
