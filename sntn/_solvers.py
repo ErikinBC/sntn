@@ -51,7 +51,6 @@ def _return_x01_funs(fun_x01_type:str='nudge', **kwargs) -> tuple:
     """Return the two fun_x{01} to be based into CI solver to find initialization points"""
     valid_types = ['nudge']
     assert fun_x01_type in valid_types, f'If fun_x01_type is specified it must be one of {valid_types}'
-    fun_x0, fun_x1 = None, None
     if fun_x01_type == 'nudge':
         fun_x0 = lambda x: np.atleast_1d(x) * 0.99
         fun_x1 = lambda x: np.atleast_1d(x) * 1.01
@@ -238,8 +237,12 @@ class conf_inf_solver():
         assert isinstance(di_scipy, dict), 'if di_scipy is not None, it needs to be a dict'
     
         # Get x-initiatization mapping functions
-        fun_x0, fun_x1 = _return_x01_funs(fun_x01_type)
-
+        base_fun_x0, base_fun_x1 = _return_x01_funs(fun_x01_type)
+        if fun_x0 is None:
+            fun_x0 = base_fun_x0
+        if fun_x1 is None:
+            fun_x1 = base_fun_x1                
+        
         # Broadcast x to match underlying parameters (or vice versa)
         x = np.squeeze(x)  # Squeeze x if we can in cause parameters are (n,)        
         tmp = broastcast_max_shape(x, *di_dist_args.values())
