@@ -141,7 +141,7 @@ def test_tnorm_CI(n, ndraw, alpha:float=0.05, approx:bool=True) -> None:
         print(f'Testing method {method} for root_scalar')
         di_scipy = {'method':method}
         if method == 'newton':
-            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b, a_min=1e-5, a_max=np.inf)
+            res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b, a_min=1e-5, a_max=np.inf)    
         else:
             res = dist.conf_int(x=x, alpha=alpha, approach='root_scalar', di_scipy=di_scipy, approx=approx, sigma2=sigma2, a=a, b=b)
         if res.ndim > 2:

@@ -47,6 +47,18 @@ no_diff(valid_approaches, di_default_methods.keys())
 
 
 @staticmethod
+def _return_x01_funs(fun_x01_type:str='nudge', **kwargs) -> tuple:
+    """Return the two fun_x{01} to be based into CI solver to find initialization points"""
+    valid_types = ['nudge']
+    assert fun_x01_type in valid_types, f'If fun_x01_type is specified it must be one of {valid_types}'
+    fun_x0, fun_x1 = None, None
+    if fun_x01_type == 'nudge':
+        fun_x0 = lambda x: np.atleast_1d(x) * 0.99
+        fun_x1 = lambda x: np.atleast_1d(x) * 1.01
+    return fun_x0, fun_x1
+
+
+@staticmethod
 def _check_flatten(**kwargs) -> tuple:
     """
     Used by the _err_cdf and _err_cdf2 functions to see if there is a 'flatten' argument that gets passed into dist_kwargs. Will return the boolean value of flatten, and then remove the key from the dict so as to not cause an error
@@ -152,11 +164,8 @@ class conf_inf_solver():
 
     def _err_cdf0(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> float:
         """Wrapper for _err_cdd to return a float"""
-        try:
-            res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
-        except:
-            breakpoint()
-            self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
+        res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
+        self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         return res
 
 
@@ -194,18 +203,19 @@ class conf_inf_solver():
             return x0
 
 
-    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None) -> np.ndarray:
+    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge') -> np.ndarray:
         """
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
         approach:           Which scipy method to use (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}), default='root_scalar'
-        di_dist_args:       A dictionary that contains the named paramaters which are fixed for CDF calculation (e.g. {'scale':2}), default=None
         di_scipy:           Dictionary to be passed into scipy optimization (e.g. root(**di_scipy), di_scipy={'method':'secant'}), default=None
+        di_dist_args:       A dictionary that contains the named paramaters which are fixed for CDF calculation (e.g. {'scale':2}), default=None
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI? (default=-100000)
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI? (default=+100000)
         fun_x0:             Is there a function that should map x to a starting vector/float of x0?
         fun_x1:             Is there a function that should map x to a starting float of x1 (see root_scalar)?
+
 
         Optimal approaches
         ------------------
@@ -226,7 +236,10 @@ class conf_inf_solver():
         di_scipy = {} if di_scipy is None else di_scipy
         assert isinstance(di_dist_args, dict), 'if di_dist_args is not None, it needs to be a dict'
         assert isinstance(di_scipy, dict), 'if di_scipy is not None, it needs to be a dict'
-        
+    
+        # Get x-initiatization mapping functions
+        fun_x0, fun_x1 = _return_x01_funs(fun_x01_type)
+
         # Broadcast x to match underlying parameters (or vice versa)
         x = np.squeeze(x)  # Squeeze x if we can in cause parameters are (n,)        
         tmp = broastcast_max_shape(x, *di_dist_args.values())
@@ -362,7 +375,6 @@ class conf_inf_solver():
             ci_lb = ci_lb.reshape(x.shape)
             ci_ub = ci_ub.reshape(x.shape)
         if np.any(np.isnan(ci_lb) | np.isnan(ci_ub)):
-            breakpoint()
             raise Warning('Null values detected!')
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
@@ -370,7 +382,6 @@ class conf_inf_solver():
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
-                breakpoint()
                 raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:
