@@ -215,15 +215,27 @@ class _tnorm():
         return dFdmu
 
     @staticmethod
-    def _find_dist_kwargs(**kwargs) -> tuple:
-        """Looks for valid truncated normal distribution keywords Returns sigma, a, b"""
-        a_min, a_max = None, None
+    def _find_dist_kwargs_CI(**kwargs) -> tuple:
+        """
+        Looks for valid truncated normal distribution keywords that are needed for generating a CI
+
+        Returns
+        -------
+        sigma2, a, b, a_min, a_max, kwargs
+        """
+        valid_kwargs = ['sigma2','a','b','a_min','a_max']
+        # sigma2, a, b are required
         sigma2, a, b = kwargs['sigma2'], kwargs['a'], kwargs['b']
+        # If a_{min,max} are not specified, assume they are the default value
+        a_min, a_max = None, None
+        
         if 'a_min' in kwargs:
             a_min = kwargs['a_min']
         if 'a_max' in kwargs:
             a_max = kwargs['a_max']
-        kwargs = {k:v for k,v in kwargs.items() if k not in ['sigma2','a','b','a_min','a_max']}
+        # Remove only constructor arguments from kwargs
+        kwargs = {k:v for k,v in kwargs.items() if k not in valid_kwargs}
+        # Return constructor arguments and kwargs
         return sigma2, a, b, a_min, a_max, kwargs
 
 
@@ -239,15 +251,10 @@ class _tnorm():
         a_m{in/ax}:             Whether gradient clipping should be used
         fun_x01_type:           Whether a special x to initialization mapping should be applied (default='nudge'). See below. Will be ignored if fun_x{01} is provided
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
-
-        fun_x01_type
-        ------------
-        nudge:          x0 -> x0, x1 -> 1.01*x1
-        bounds:         x0 -> mu_lb, x -> mu_ub
         """
         solver = conf_inf_solver(dist=_tnorm, param_theta='mu',dF_dtheta=self._dmu_dcdf, alpha=alpha)
         # Set up di_dist_args (these go into the tnorm class basically)
-        sigma2, a, b, a_min, a_max, kwargs = self._find_dist_kwargs(**kwargs)
+        sigma2, a, b, a_min, a_max, kwargs = self._find_dist_kwargs_CI(**kwargs)
         di_dist_args = {'sigma2':sigma2, 'a':a, 'b':b, 'a_min':a_min, 'a_max':a_max}
         di_dist_args['approx'] = approx
         # Run CI solver

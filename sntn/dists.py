@@ -6,7 +6,7 @@ Contains main distributions (i.e. SNTN)
 import numpy as np
 # Internal modules
 from sntn._tnorm import _tnorm
-from sntn._sntn import _SNTN
+from sntn._sntn import _nts
 
 """Inherit the entire class"""
 class tnorm(_tnorm):
@@ -15,6 +15,6 @@ class tnorm(_tnorm):
 
 
 """Inherit the entire class"""
-class SNTN(_SNTN):
-    def __init__(self) -> None:
-        super().__init__()
+class nts(_nts):
+    def __init__(self,  mu1:float or np.ndarray, mu2:float or np.ndarray, tau1:float or np.ndarray, tau2:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1) -> None:
+        super().__init__(mu1, mu2, tau1, tau2, a, b, c1, c2)

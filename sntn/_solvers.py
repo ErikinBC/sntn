@@ -214,7 +214,10 @@ class conf_inf_solver():
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI? (default=+100000)
         fun_x0:             Is there a function that should map x to a starting vector/float of x0?
         fun_x1:             Is there a function that should map x to a starting float of x1 (see root_scalar)?
-
+        
+        fun_x01_type
+        ------------
+        nudge:          x0 -> x0, x1 -> 1.01*x1
 
         Optimal approaches
         ------------------
