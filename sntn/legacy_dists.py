@@ -120,9 +120,9 @@ class NTS():
         # W
         self.theta1 = self.mu.sum(1)
         self.theta2 = self.mu[:,1]
-        self.sigma1 = np.sqrt(np.sum(self.tau**2,1))
-        self.sigma2 = self.tau[:,1]
-        self.rho = self.sigma2/self.sigma1
+        self.sigma21 = np.sqrt(np.sum(self.tau**2,1))
+        self.sigma22 = self.tau[:,1]
+        self.rho = self.sigma22/self.sigma21
         # Initialize BVN for CDF
         self.di_BVN = {i:BVN(mu=[0,0],sigma=[1,1],rho=self.rho[i]) for i in range(self.r)}
 
@@ -147,8 +147,8 @@ class NTS():
             x = np.array(x)
         if isinstance(x, float) or isinstance(x, int):
             x = np.array([x])
-        term1 = self.sigma1 * self.Z
-        m1 = (x - self.theta1) / self.sigma1
+        term1 = self.sigma21 * self.Z
+        m1 = (x - self.theta1) / self.sigma21
         term2 = (self.beta-self.rho*m1)/np.sqrt(1-self.rho**2)
         term3 = (self.alpha-self.rho*m1)/np.sqrt(1-self.rho**2)
         f = norm.pdf(m1)*(norm.cdf(term2) - norm.cdf(term3)) / term1
@@ -163,7 +163,7 @@ class NTS():
         """
         x = self.reshape(x)
         nr, nc = x.shape
-        m1 = (x - self.theta1) / self.sigma1
+        m1 = (x - self.theta1) / self.sigma21
         alpha_seq = np.where(self.alpha == -np.infty, -10, self.alpha)
         beta_seq = np.where(self.beta == np.infty, +10, self.beta)
         if self.r == 1:
@@ -187,7 +187,7 @@ class NTS():
     def CI(self, x, gamma, nline=25, imax=10, kse=8, tol=0.01, verbose=False):
         x = rvec(x)
         nc = x.shape[1]
-        lb, ub = self.mu_W-kse*self.sigma1, self.mu_W+kse*self.sigma1
+        lb, ub = self.mu_W-kse*self.sigma21, self.mu_W+kse*self.sigma21
         mu_seq = np.linspace(lb,ub,nline)
         if (mu_seq.shape[1]==1) & (nc>1):
             mu_seq = np.tile(mu_seq,[1,nc])

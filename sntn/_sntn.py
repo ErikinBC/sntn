@@ -26,14 +26,14 @@ def _mus_are_equal(mu1, mu2) -> tuple:
 
 
 class _nts():
-    def __init__(self, mu1:float or np.ndarray or None, tau1:float or np.ndarray, mu2:float or np.ndarray or None, tau2:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, fix_mu:bool=False) -> None:
+    def __init__(self, mu1:float or np.ndarray or None, tau21:float or np.ndarray, mu2:float or np.ndarray or None, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, fix_mu:bool=False) -> None:
         """
         The "normal and truncated sum": workhorse class for the sum of a normal and truncated normal. Carries out standard inferece using scipy.dist syntax with added conf_int method
 
-        W = c1*Z1 + c2*Z2,  Z1 ~ N(mu1, tau1^2), Z2 ~ TN(mu2, tau2^2, a, b)
+        W = c1*Z1 + c2*Z2,  Z1 ~ N(mu1, tau21^2), Z2 ~ TN(mu2, tau22^2, a, b)
         W ~ NTS(theta(mu(c)), Sigma(tau(c)), a, b)
         mu(c) =             [c1*mu1, c2*mu2]
-        tau(c) =            [c1**2 * tau1, c2**2 * tau2]
+        tau(c) =            [c1**2 * tau21, c2**2 * tau22]
         theta(mu(c)) =      [sum(mu), mu[1]]
         sigma2 =            [sum(tau), tau[1]]
         sigma =             sqrt(sigma2)
@@ -44,9 +44,9 @@ class _nts():
         Parameters
         ----------
         mu1:             Mean of the unconditional gaussian (can be None is fix_mu=True)
-        tau1:            The variance of the unconditional gaussian (must be strictly positive)
+        tau21:            The variance of the unconditional gaussian (must be strictly positive)
         mu2:             The mean of the truncated Gaussian (can be None is fix_mu=True)
-        tau2:            The variance of the unconditional gaussian (must be strictly positive)
+        tau22:            The variance of the unconditional gaussian (must be strictly positive)
         a:               The lowerbound of the truncated Gaussian (must be smaller than b)
         b:               The upperbound of the truncated Gaussian (must be larger than a)
         c1:              A weighting constant for Z1 (must be >0, default=1)
@@ -74,30 +74,32 @@ class _nts():
         # Input checks and broadcasting
         if fix_mu:
             mu1, mu2 = self._mus_are_equal(mu1, mu2)
-        mu1, mu2, tau1, tau2, a, b, c1, c2 = broastcast_max_shape(mu1, mu2, tau1, tau2, a, b, c1, c2)
-        assert np.all(tau1 > 0), 'tau1 needs to be strictly greater than zero'
-        assert np.all(tau2 > 0), 'tau2 needs to be strictly greater than zero'
+        mu1, mu2, tau21, tau22, a, b, c1, c2 = broastcast_max_shape(mu1, mu2, tau21, tau22, a, b, c1, c2)
+        assert np.all(tau21 > 0), 'tau21 needs to be strictly greater than zero'
+        assert np.all(tau22 > 0), 'tau22 needs to be strictly greater than zero'
         assert np.all(b > a), 'b needs to be greated than a'
         assert np.all(c1 > 0), 'c1 needs to be strictly greater than zero'
         assert np.all(c2 > 0), 'c2 needs to be strictly greater than zero'
         # Capture the original shape for later transformations
         self.param_shape = mu1.shape
         # Flatten parameters
-        mu1, mu2, tau1, tau2, a, b, c1, c2 = [x.flatten() for x in [mu1, mu2, tau1, tau2, a, b, c1, c2]]
+        mu1, mu2, tau21, tau22, a, b, c1, c2 = [x.flatten() for x in [mu1, mu2, tau21, tau22, a, b, c1, c2]]
         # Create attributes
         self.k = len(mu1)
         self.theta1 = c1*mu1 + c2*mu2
         self.theta2 = c2*mu2
-        self.sigma1 = c1**2 * tau1 + c2**2 * tau2
-        self.sigma2 = c2**2 * tau2
+        sigma21 = c1**2 * tau21 + c2**2 * tau22
+        sigma22 = c2**2 * tau22
+        self.sigma1 = np.sqrt(sigma21)
+        self.sigma2 = np.sqrt(sigma22)
         self.rho = self.sigma2 / self.sigma1
         # Calculate the truncated normal terms
-        self.alpha = (a - mu2) / np.sqrt(tau2)
-        self.beta = (b - mu2) / np.sqrt(tau2)
+        self.alpha = (a - self.theta2) / self.sigma2
+        self.beta = (b - self.theta2) / self.sigma2
         self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
         # Use the scipy classes to create separate distributions
-        self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau1))
-        self.dist_Z2 = truncnorm(loc=c2*mu2, scale=c2*np.sqrt(tau2), a=self.alpha, b=self.beta)
+        self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau21))
+        self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
 
 
     def mean(self) -> np.ndarray:
@@ -116,12 +118,22 @@ class _nts():
         """Calculates the marginal density of the NTS distribution at some point x"""
         if not isinstance(x, np.ndarray):
             x = np.asarray(x)
-        assert x.shape[-1] == self.k, f'Last dim of x needs to match {self.k}'
+        if len(x.shape) == 1:
+            # Assume that it is broadcasting for all k
+            x = np.tile(x, [self.k,1]).T
+        else:
+            # Last dims need to match paramateres
+            k_x = np.prod(x.shape[1:])
+            assert k_x == self.k, f'Last dim of x needs to match {self.k}'
+            if len(x.shape[1:]) > 1:
+                x = x.reshape((x.shape[0], self.k))
+        # Calculate pdf
         term1 = self.sigma1 * self.Z
         m1 = (x - self.theta1) / self.sigma1
         term2 = (self.beta-self.rho*m1) / np.sqrt(1-self.rho**2)
         term3 = (self.alpha-self.rho*m1) / np.sqrt(1-self.rho**2)
         f = norm.pdf(m1)*(norm.cdf(term2) - norm.cdf(term3)) / term1
+        # Return
         f = self.to_original_shape(f)
         return f
 
@@ -158,11 +170,11 @@ class _nts():
 
         Returns
         -------
-        {mu1,mu2}, tau1, tau2, c1, c2, fix_mu, kwargs
+        {mu1,mu2}, tau21, tau22, c1, c2, fix_mu, kwargs
         """
-        valid_kwargs = ['mu1', 'mu2', 'tau1', 'tau2', 'c1', 'c2', 'fix_mu']
-        # tau1/tau2 are always required
-        tau1, tau2 = kwargs['tau1'], kwargs['tau2']
+        valid_kwargs = ['mu1', 'mu2', 'tau21', 'tau22', 'c1', 'c2', 'fix_mu']
+        # tau21/tau22 are always required
+        tau21, tau22 = kwargs['tau21'], kwargs['tau22']
         # If c1/c2/fix_mu are not specified, assume they are the default values
         if 'c1' not in kwargs:
             c1 = 1
@@ -184,7 +196,7 @@ class _nts():
         # Remove valid_kwargs from kwargs
         kwargs = {k:v for k,v in kwargs.items() if k not in valid_kwargs}
         # Return constructor arguments and kwargs
-        return mu, tau1, tau2, c1, c2, fix_mu, kwargs
+        return mu, tau21, tau22, c1, c2, fix_mu, kwargs
 
 
     def conf_int(self, x:np.ndarray, alpha:float=0.05, param_fixed:str='mu', **kwargs) -> np.ndarray:
@@ -201,7 +213,7 @@ class _nts():
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
         # Process the key-word arguments and extract NTS parameters
-        mu, tau1, tau2, c1, c2, fix_mu, kwargs = self._find_dist_kwargs_CI(**kwargs)
+        mu, tau21, tau22, c1, c2, fix_mu, kwargs = self._find_dist_kwargs_CI(**kwargs)
         # Storage for the named parameters what will go into class initialization (excluded param_fixed)
         di_dist_args = {}
         # param_fixed must be either mu1, mu2, or mu (mu1==mu2)
@@ -220,7 +232,7 @@ class _nts():
         # Set up solver
         solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, dF_dtheta=self._dmu_dcdf, alpha=alpha)
         # Assign the remainder of the parameter
-        di_dist_args = {**di_dist_args, **{'tau1':tau1, 'tau2':tau2, 'c1':c1, 'c2':c2, 'fix_mu':fix_mu}}
+        di_dist_args = {**di_dist_args, **{'tau21':tau21, 'tau22':tau22, 'c1':c1, 'c2':c2, 'fix_mu':fix_mu}}
         # Run CI solver
         res = solver._conf_int(x=x, di_dist_args=di_dist_args, **kwargs)
         # Return matrix of values

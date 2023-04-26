@@ -130,9 +130,9 @@ nts3.CI(x,1-alpha/2)
 # gg.save(os.path.join(dir_figures,'gg_tmp.png'),height=4,width=5)
 
 # Demonstrated with example
-mu1, tau1 = 1, 1
-mu2, tau2, a, b = 1, 2, -1, 4
-mu, tau = np.array([mu1, mu2]), np.array([tau1,tau2])
+mu1, tau21 = 1, 1
+mu2, tau22, a, b = 1, 2, -1, 4
+mu, tau = np.array([mu1, mu2]), np.array([tau21,tau22])
 dist_NTS = NTS(mu=mu,tau=tau, a=a, b=b)
 n_iter = 100000
 W_sim = dist_NTS.rvs(n=n_iter,seed=1)
@@ -261,9 +261,9 @@ gg_nm.save(os.path.join(dir_figures,'gg_nm.png'),width=4,height=7)
 # --- (4A) QUERIES 1964 --- #
 # X~N(100,6), Y~TN(50,3,44,Inf)
 
-mu1, tau1 = 100, 6
-mu2, tau2, a, b = 50, 3, 44, np.inf
-mu, tau = np.array([mu1, mu2]), np.array([tau1,tau2])
+mu1, tau21 = 100, 6
+mu2, tau22, a, b = 50, 3, 44, np.inf
+mu, tau = np.array([mu1, mu2]), np.array([tau21,tau22])
 dist_A = NTS(mu=mu,tau=tau, a=a, b=b)
 dist_A.cdf(138)
 
