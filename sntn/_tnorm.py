@@ -131,7 +131,7 @@ class _tnorm():
         return a_hat, b_hat, mu_hat, sigma_hat
 
 
-    def rvs(self, n, seed=None) -> np.ndarray:
+    def rvs(self, n:int, seed=None) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).rvs()"""
         # When sampling it is [num_sample,*dims of parameters]
         samp_shape = (n,)

@@ -7,9 +7,22 @@ import numpy as np
 from scipy.stats import truncnorm, norm
 from inspect import getfullargspec
 # Internal
-# from sntn.utilities.grad import _log_gauss_approx, _log_diff
 from sntn.utilities.utils import broastcast_max_shape
 from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
+
+
+@staticmethod
+def _mus_are_equal(mu1, mu2) -> tuple:
+    """When we desire to fix mu1/mu2 to the same value, will return the value of both when one of them is None"""
+    if mu1 is None:
+        assert mu2 is not None, 'if mu1 is None, mu2 cannot be'
+        return mu2, mu2
+    elif mu2 is None:
+        assert mu1 is not None, 'if mu1 is None, mu2 cannot be'
+        return mu1, mu1
+    else:
+        assert np.all(mu1 == mu2), 'if mu is fixed, mu1 != mu2'
+        return mu1, mu2
 
 
 class _nts():
@@ -45,8 +58,11 @@ class _nts():
         k:              Number of NTS distributiosn (>1 when inputs are not floats/ints)
         theta:          A (k,2) array to parameterize NTS
         Sigma:          A (k,4) array with covariance matrix
-        a:              A (k,) array of lower bounds
-        b:              A (k,) array of upper bounds
+        alpha:          A (k,) array of how many SDs the lowerbound is from the mean
+        beta:           A (k,) array of how many SDs the upperbound is from the mean
+        Z:              A (k,) array of 
+        dist_Z1:        A scipy.stats.norm distribution
+        dist_Z2:        A scipy.stats.truncnorm distribution
 
         Methods
         -------
@@ -60,7 +76,7 @@ class _nts():
             mu1, mu2 = self._mus_are_equal(mu1, mu2)
         mu1, mu2, tau1, tau2, a, b, c1, c2 = broastcast_max_shape(mu1, mu2, tau1, tau2, a, b, c1, c2)
         assert np.all(tau1 > 0), 'tau1 needs to be strictly greater than zero'
-        assert np.all(tau2 > 0), 'tau1 needs to be strictly greater than zero'
+        assert np.all(tau2 > 0), 'tau2 needs to be strictly greater than zero'
         assert np.all(b > a), 'b needs to be greated than a'
         assert np.all(c1 > 0), 'c1 needs to be strictly greater than zero'
         assert np.all(c2 > 0), 'c2 needs to be strictly greater than zero'
@@ -70,33 +86,64 @@ class _nts():
         mu1, mu2, tau1, tau2, a, b, c1, c2 = [x.flatten() for x in [mu1, mu2, tau1, tau2, a, b, c1, c2]]
         # Create attributes
         self.k = len(mu1)
-        self.theta = np.c_[c1*mu1 + c2*mu2, c2*mu2]
-        tau = np.c_[c1**2 * tau1, c2**2 * tau2]
-        sigma2 = np.c_[np.sum(tau, axis=1, keepdims=True), tau[:,1]]
-        sigma = np.sqrt(sigma2)
-        rho = sigma[:,1]/ sigma[:,0]
-        self.Sigma = np.c_[sigma2[:,0], sigma2[:,1], sigma2[:,1], sigma2[:,1]]
-        self.a = a
-        self.b = a
+        self.theta1 = c1*mu1 + c2*mu2
+        self.theta2 = c2*mu2
+        self.sigma1 = c1**2 * tau1 + c2**2 * tau2
+        self.sigma2 = c2**2 * tau2
+        self.rho = self.sigma2 / self.sigma1
+        # Calculate the truncated normal terms
+        self.alpha = (a - mu2) / np.sqrt(tau2)
+        self.beta = (b - mu2) / np.sqrt(tau2)
+        self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
+        # Use the scipy classes to create separate distributions
+        self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau1))
+        self.dist_Z2 = truncnorm(loc=c2*mu2, scale=c2*np.sqrt(tau2), a=self.alpha, b=self.beta)
 
 
-    @staticmethod
-    def _mus_are_equal(mu1, mu2) -> tuple:
-        """When we desire to fix mu1/mu2 to the same value, will return the value of both when one of them is None"""
-        if mu1 is None:
-            assert mu2 is not None, 'if mu1 is None, mu2 cannot be'
-            return mu2, mu2
-        elif mu2 is None:
-            assert mu1 is not None, 'if mu1 is None, mu2 cannot be'
-            return mu1, mu1
-        else:
-            assert np.all(mu1 == mu2), 'if mu is fixed, mu1 != mu2'
-            return mu1, mu2
+    def mean(self) -> np.ndarray:
+        """Calculate the mean of the NTS distribution"""
+        mu = self.dist_Z1.mean() + self.dist_Z2.mean()
+        mu = mu.reshape(self.param_shape)
+        return mu
 
 
     def cdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
         return None
+
+
+    def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
+        """Calculates the marginal density of the NTS distribution at some point x"""
+        if not isinstance(x, np.ndarray):
+            x = np.asarray(x)
+        assert x.shape[-1] == self.k, f'Last dim of x needs to match {self.k}'
+        term1 = self.sigma1 * self.Z
+        m1 = (x - self.theta1) / self.sigma1
+        term2 = (self.beta-self.rho*m1) / np.sqrt(1-self.rho**2)
+        term3 = (self.alpha-self.rho*m1) / np.sqrt(1-self.rho**2)
+        f = norm.pdf(m1)*(norm.cdf(term2) - norm.cdf(term3)) / term1
+        f = self.to_original_shape(f)
+        return f
+
+
+    def to_original_shape(self, z:np.ndarray) -> np.ndarray:
+        """Returns to the original shape"""
+        nz_shape = len(z.shape)
+        if nz_shape > 1:
+            # Assume its from rvs
+            return z.reshape((z.shape[0],)+self.param_shape)
+        else:
+            assert self.param_shape == z.shape, 'If not rvs, then shapes need to match'
+            return z.reshape(self.param_shape)
+        
+
+    def rvs(self, ndraw:int, seed=None) -> np.ndarray:
+        """Generate n samples from the distribution"""
+        z1 = self.dist_Z1.rvs([ndraw,self.k], random_state=seed)
+        z2 = self.dist_Z2.rvs([ndraw, self.k], random_state=seed)
+        w = z1 + z2
+        w = self.to_original_shape(w)
+        return w
 
 
     @staticmethod
