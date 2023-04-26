@@ -7,7 +7,7 @@ python3 -m pytest tests/test_conf_inf_solver.py -s
 
 # External
 import numpy as np
-from scipy.stats import norm, binom
+from scipy.stats import norm, binom, beta
 from parameters import seed
 # Internal
 from sntn.utilities.utils import is_equal, check_err_cdf_tol, str2list
@@ -56,6 +56,11 @@ def test_binomial(n:int=50, p0:float=0.5, nsim:int=850, alpha:float=0.1):
     pval_root = dist_cover.cdf(nsim*cover_root)
     pval_root = 2*min(pval_root, 1-pval_root)  # two-sided
     assert pval_root > alpha, 'expected to NOT reject null'
+    # Check that it aligns with beta-binomial
+    dist_beta = beta(a=n_obs+1, b=n-n_obs)
+    p_ci_beta = np.c_[dist_beta.ppf(alpha/2), dist_beta.ppf(1-alpha/2)]
+    assert np.max(np.abs(p_ci_beta - p_ci_root)) < 1e-8, 'Expected it to be identical to beta-binomial'
+
 
 
 
