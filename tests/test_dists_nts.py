@@ -54,7 +54,6 @@ def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
     idx_median = np.expand_dims(np.argmin(np.cumsum(probs, 0) <= 0.5,axis=0),0)
     med_int = np.take_along_axis(points, idx_median, 0)
     med_data = np.median(data, 0, keepdims=True)
-    # breakpoint()
     abs_err_med = np.abs(med_int - med_data)
     assert np.all(abs_err_med < tol_mu), 'Medians do not align'
 

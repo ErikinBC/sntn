@@ -347,7 +347,7 @@ class conf_inf_solver():
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #
-            di_base = {**{'fun':self._err_cdf2, 'args':(), 'x0':x.flatten()}, **di_scipy}
+            di_base = {**{'fun':self._err_cdf2, 'args':(), 'x0':fun_x0(x.flatten())}, **di_scipy}
             if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
                 # Gradient methods
                 di_base['jac'] = self._derr_cdf2
@@ -368,7 +368,7 @@ class conf_inf_solver():
 
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            di_base = {**{'fun':self._err_cdf, 'x0':x, 'jac':self.dF_dtheta, 'args':()}, **di_scipy}
+            di_base = {**{'fun':self._err_cdf, 'x0':fun_x0(x.flatten()), 'jac':self.dF_dtheta, 'args':()}, **di_scipy}
             # Solve for the lower-bound
             arg_vec[1] = 1-self.alpha/2
             di_base['args'] = tuple(arg_vec)

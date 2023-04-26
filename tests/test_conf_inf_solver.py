@@ -50,8 +50,8 @@ def test_binomial(n:int=50, p0:float=0.5, nsim:int=850, alpha:float=0.1):
 
     def fun_x1(x):
         return min(x / n * 1.1, 1-1e-3)
-
-    p_ci_root = find_ci._conf_int(x=n_obs,approach='root_scalar',di_dist_args={'n':n},di_scipy={'method':'secant'}, mu_lb=1e-3, mu_ub=1-1e-3, fun_x0=fun_x0, fun_x1=fun_x1)
+    # Run the fastest solver
+    p_ci_root = find_ci._conf_int(x=n_obs,approach='root',di_dist_args={'n':n},di_scipy={'method':'hybr'}, mu_lb=1e-3, mu_ub=1-1e-3, fun_x0=fun_x0, fun_x1=fun_x1)
     cover_root = np.mean((p_ci_root[:,0] <= p0) & (p0 <= p_ci_root[:,1]))
     pval_root = dist_cover.cdf(nsim*cover_root)
     pval_root = 2*min(pval_root, 1-pval_root)  # two-sided
