@@ -85,8 +85,11 @@ class _bvn():
         """Returns to the original shape"""
         nz_shape = len(z.shape)
         if nz_shape > 1:
-            # Assume its from rvs
-            return z.reshape((z.shape[0],)+self.param_shape)
+            if nz_shape > 2:
+                # Assume its from rvs
+                return z.reshape((z.shape[0],2,)+self.param_shape)
+            else:
+                return z.reshape((z.shape[0],)+self.param_shape)
         else:
             assert self.param_shape == z.shape, 'If not rvs, then shapes need to match'
             return z.reshape(self.param_shape)
@@ -109,6 +112,8 @@ class _bvn():
         x = np.random.randn(self.k, 2, ndraw)
         z = np.einsum('ijk,ikl->ijl', self.A.reshape([self.k,2,2]).transpose(0,2,1), x).transpose(2,1,0)
         z += np.expand_dims(np.c_[self.mu1, self.mu2].T,0)
+        # Return to original shape
+        z = self.to_original_shape(z)
         return z
 
 

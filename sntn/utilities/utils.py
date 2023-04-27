@@ -349,3 +349,53 @@ def check_err_cdf_tol(solver, theta:np.ndarray, x:np.ndarray, alpha:float, **dis
     assert np.all(solver._err_cdf2(**di_eval) != 0), 'Squared-error was zero'
     if has_dF_dtheta:
         assert np.all(solver._derr_cdf2(**di_eval) != 0), 'Derivative was zero'
+
+
+def flip_last_axis(x:np.ndarray) -> np.ndarray:
+    """Flips a np.array so the last axis becomes first"""
+    return x.transpose((len(x.shape)-1,) + tuple(range(len(x.shape)-1)))
+
+
+def fast_corr(A:np.ndarray, B:np.ndarray) -> np.ndarray:
+    """Calculates the column-wise correlations between two arrays"""
+    # calculate the means of each column of A and B
+    mean_A = np.mean(A, axis=0)
+    mean_B = np.mean(B, axis=0)
+    # subtract the means from each column of A and B
+    A_centered = A - mean_A
+    B_centered = B - mean_B
+    # calculate the norm of each column of A and B
+    norm_A = np.linalg.norm(A_centered, axis=0)
+    norm_B = np.linalg.norm(B_centered, axis=0)
+    # calculate the dot product of each pair of centered columns in A and B
+    dot_products = np.sum(A_centered * B_centered, 0)
+    # divide each dot product by the product of the corresponding norms to get the correlation coefficient
+    correlations = dot_products / (norm_A * norm_B)
+    return correlations
+
+
+def rho_debiased(x:np.ndarray, y:np.ndarray, method:str='fisher') -> np.ndarray:
+    """
+    Return a debiased version of the emprical correlation coefficient
+    
+    Parameters
+    ----------
+    x:              A (n,i,j,k,...) dim array
+    y:              Matches dim of x
+
+    Returns
+    -------
+    An (i,j,k,...) array of correlation coefficients
+    """
+    valid_methods = ['pearson', 'fisher', 'olkin']
+    assert method in valid_methods, f'method must be one of {valid_methods}'
+    assert x.shape == y.shape, 'x and y must be the same shapes'
+    # Assume the first dimension is size
+    n = x.shape[0]
+    rho = fast_corr(x, y)
+    if method == 'pearson':
+        return rho
+    if method == 'fisher':
+        return rho * (1 + (1-rho**2)/(2*n))
+    if method == 'olkin':
+        return rho * (1 + (1-rho**2)/(2*(n-3)))
