@@ -2,43 +2,115 @@
 Main bivariate normal class
 """
 
+# External
+import numpy as np
+from scipy.linalg import cholesky
+from scipy.integrate import quad
+from scipy.optimize import minimize
+from scipy.stats import multivariate_normal as MVN
+from sklearn.linear_model import LinearRegression
+# Internal
+from sntn.utilities.utils import broastcast_max_shape
+
+
+@staticmethod
+def imills(a:np.ndarray) -> np.ndarray:
+    """Returns the inverse mills ratio"""
+    return norm.pdf(a)/norm.cdf(-a)
+
+@staticmethod
+def sheppard(theta:np.ndarray, h:np.ndarray, k:np.ndarray) -> np.ndarray:
+    """Returns the function value for doing a BVN integral"""
+    return (1/(2*np.pi))*np.exp(-0.5*(h**2+k**2-2*h*k*np.cos(theta))/(np.sin(theta)**2))
 
 
 class _bvn():
-    def __init__(self, mu, sigma, rho):
+    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy') -> None:
         """
-        Main workhorse class for a bivariate normal distribution
-        mu: array of means
-        sigma: array of variances
-        rho: correlation coefficient
-        """
-        if isinstance(mu,list):
-            mu, sigma = np.array(mu), np.array(sigma)
-        assert mu.shape[0]==sigma.shape[0]==2
-        assert np.abs(rho) <= 1
-        self.mu = mu.reshape([1,2])
-        self.sigma = sigma.flatten()
-        od = rho*np.sqrt(sigma.prod())
-        self.rho = rho
-        self.Sigma = np.array([[sigma[0],od],[od, sigma[1]]])
-        self.A = cholesky(self.Sigma) # A.T.dot(A) = Sigma
+        Main workhorse class for a bivariate normal distribution:
 
-    # size=1000;seed=1234 # del size, seed
-    def rvs(self, size, seed=None):
+        X1 ~ N(mu1, sigma21), X2 ~ N(mu2, sigma22)
+        corr(X1, X2) = rho
+        [X1; X2] ~ BVN( [mu1, mu2], [[sigma21, rho], [rho, sigma22]] )
+        
+        Parameters
+        ----------
+        mu1:                    The mean of the first Gaussian
+        sigma21:                The variance of the first Gaussian
+        mu2:                    The mean of the second Gaussian
+        sigma22:                The variance of the second Gaussian
+        rho:                    The correlation b/w X1, X2
+        cdf_approach:           Which approach should be used to calculate CDF? (default='scipy')
+
+        CDF approaches
+        ----------
+        scipy:                  Uses a grid approach for each BVN pair
+        cox1:                   The simplest approach to estimate CDF (first-order)
+        cox2:                   Includes second-order approximation terms
+        quad:                   A quadrature approach to estimate the integral
+
+
+        Methods
+        -------
+
         """
-        size: number of samples to simulate
-        seed: to pass onto np.random.seed
+        # Process inputs
+        mu1, sigma21, mu2, sigma22, rho = broastcast_max_shape(mu1, sigma21, mu2, sigma22, rho)
+        # Input checks
+        assert np.all((rho >= -1) & (rho <= +1)), 'rho needs to be b/w [-1,+1]'
+        assert np.all(sigma21 > 0), 'sigma21 needs to be > 0'
+        assert np.all(sigma22 > 0), 'sigma22 needs to be > 0'
+        # Capture the original shape for later transformations
+        self.param_shape = mu1.shape
+        # Flatten parameters
+        mu1, sigma21, mu2, sigma22, rho = [x.flatten() for x in [mu1, sigma21, mu2, sigma22, rho]]
+        # Assign attributes
+        self.k = len(mu1)
+        self.mu1 = mu1
+        self.sigma21 = sigma21 
+        self.mu2 = mu2
+        self.sigma22 = sigma22 
+        self.rho = rho
+        self.sigma1 = np.sqrt(self.sigma21)
+        self.sigma2 = np.sqrt(self.sigma22)
+        # Create the Sigma covariance matrix, which is a (k,4 matrix) which will be looped through for cholesky decomposition as well
+        self.Sigma = np.stack([self.sigma21, self.sigma1*self.sigma2*self.rho, self.sigma1*self.sigma2*self.rho, self.sigma22],axis=1)
+        # Cholesky decomp used for for drawing data        
+        self.A = np.zeros(self.Sigma.shape)
+        for i in range(self.k):
+            self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
+    
+
+    def to_original_shape(self, z:np.ndarray) -> np.ndarray:
+        """Returns to the original shape"""
+        nz_shape = len(z.shape)
+        if nz_shape > 1:
+            # Assume its from rvs
+            return z.reshape((z.shape[0],)+self.param_shape)
+        else:
+            assert self.param_shape == z.shape, 'If not rvs, then shapes need to match'
+            return z.reshape(self.param_shape)
+
+
+    def rvs(self, ndraw:int, seed=None) -> np.ndarray:
+        """
+        Get ndraw samples from the underlying distributions
+        
+        Parameters
+        ----------
+        ndraw:          Number of samples to simulate
+        seed:           Seed to pass onto np.random.seed
+
+        Returns
+        -------
+        An (ndraw,2,k) array of simulated values
         """
         np.random.seed(seed)
-        X = np.random.randn(size,2)
-        Z = self.A.T.dot(X.T).T + self.mu
-        return Z
+        x = np.random.randn(self.k, 2, ndraw)
+        z = np.einsum('ijk,ikl->ijl', self.A.reshape([self.k,2,2]).transpose(0,2,1), x).transpose(2,1,0)
+        z += np.expand_dims(np.c_[self.mu1, self.mu2].T,0)
+        return z
 
-    def imills(self, a):
-        return norm.pdf(a)/norm.cdf(-a)
-
-    def sheppard(self, theta, h, k):
-        return (1/(2*np.pi))*np.exp(-0.5*(h**2+k**2-2*h*k*np.cos(theta))/(np.sin(theta)**2))
 
     # h, k = -2, -np.infty
     def orthant(self, h, k, method='scipy'):

@@ -3,7 +3,6 @@ Make sure SNTN works as expected
 
 python3 -m tests.test_dists_nts
 python3 -m pytest tests/test_dists_nts.py -s
-
 """
 
 # Internal
@@ -33,6 +32,11 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
+    """Checks that:
+    i) CDF integrates to one
+    ii) Mean = int f(x) x dx 
+    iii) Median = inf_c : int_{lb}^c f(x) dx = 0.5
+    """ 
     # Draw different distributions
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
     dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
