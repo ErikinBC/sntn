@@ -10,7 +10,11 @@ from scipy.optimize import minimize
 from scipy.stats import multivariate_normal as MVN
 from sklearn.linear_model import LinearRegression
 # Internal
-from sntn.utilities.utils import broastcast_max_shape
+from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
+
+# Accepted CDF method
+valid_cdf_approach = ['scipy', 'cox1', 'cox2', 'quad']
+
 
 
 @staticmethod
@@ -60,6 +64,8 @@ class _bvn():
         assert np.all((rho >= -1) & (rho <= +1)), 'rho needs to be b/w [-1,+1]'
         assert np.all(sigma21 > 0), 'sigma21 needs to be > 0'
         assert np.all(sigma22 > 0), 'sigma22 needs to be > 0'
+        assert isinstance(cdf_approach, str), 'cdf_approach needs to be a string'
+        assert cdf_approach in valid_cdf_approach, f'cdf approach must be one of: {valid_cdf_approach}'
         # Capture the original shape for later transformations
         self.param_shape = mu1.shape
         # Flatten parameters
@@ -79,20 +85,17 @@ class _bvn():
         self.A = np.zeros(self.Sigma.shape)
         for i in range(self.k):
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
-    
 
-    def to_original_shape(self, z:np.ndarray) -> np.ndarray:
-        """Returns to the original shape"""
-        nz_shape = len(z.shape)
+
+    def cdf(self, x:np.ndarray) -> np.ndarray:
+        """
+        Calculate the CDF of a pair of points. If x is a 1-d array, then it needs to match the dimensions of the constructor parameters
+        """
+        x = try2array(x)
         if nz_shape > 1:
-            if nz_shape > 2:
-                # Assume its from rvs
-                return z.reshape((z.shape[0],2,)+self.param_shape)
-            else:
-                return z.reshape((z.shape[0],)+self.param_shape)
+            1
         else:
-            assert self.param_shape == z.shape, 'If not rvs, then shapes need to match'
-            return z.reshape(self.param_shape)
+            assert self.param_shape == z.shape, 'If x is a vector (or float), then it must match the dimensions of the input. For example, if mu1=[1,2,3], then '        
 
 
     def rvs(self, ndraw:int, seed=None) -> np.ndarray:
@@ -113,7 +116,7 @@ class _bvn():
         z = np.einsum('ijk,ikl->ijl', self.A.reshape([self.k,2,2]).transpose(0,2,1), x).transpose(2,1,0)
         z += np.expand_dims(np.c_[self.mu1, self.mu2].T,0)
         # Return to original shape
-        z = self.to_original_shape(z)
+        z = reverse_broadcast_from_k(z, self.param_shape)
         return z
 
 

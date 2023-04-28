@@ -11,6 +11,14 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def try2array(x) -> np.ndarray:
+    """Checks to see if x is ndarray, and if not tries to make at least-1d"""
+    if not isinstance(x, np.ndarray):
+        return np.atleast_1d(x)
+    else:
+        return x
+
+
 def no_diff(x, y):
     assert set(x) == set(y) and len(x) == len(y), 'x and y do not have the same elements'
 
@@ -399,3 +407,69 @@ def rho_debiased(x:np.ndarray, y:np.ndarray, method:str='fisher') -> np.ndarray:
         return rho * (1 + (1-rho**2)/(2*n))
     if method == 'olkin':
         return rho * (1 + (1-rho**2)/(2*(n-3)))
+
+
+
+def broadcast_to_k(x:np.ndarray, param_shape:tuple) -> np.ndarray:
+    """When an array is passed into the a pdf/cdf/ppf method, we need to determine how to broadbast the array for doing inference. Suppose k is the flattened dimension of some input parameters, then when the input is a matrix, 
+    
+    nd = len(x.shape)
+    if nd == 1:
+        if x.shape[0] == k:
+            Assume we want value returned for that specific parameter. For example, if the input parameters are (10,) and x is (10,) then it will be a 1:1 index mapping (index 1 == parameter 1 == pdf at parameter 1)
+        else:
+            Assume that we want to broadcast it. For example, if input parameters are (10,) and x is (9,), assume we want to calculate the points for all 10 parameters (i.e. 90 calculations)
+    else:
+        When x has 2 or more dimensions, the its input dimensions have to match the input parameters for the last k. For example, if the input parameters are (4,3,2) then x can be (6,6,4,3,2) but not (6,6,3,2) since (...,4,3,2) need to match
+
+    Parameters
+    ----------
+    x:                      An array or arbitray dimension (the last d dimensions need to match len(param_shape) unless param shape is an array in which case it will an outer sweep)
+    param_shape:            The dimension that we want to broadcast for
+    """
+    # Input checks
+    assert isinstance(x, np.ndarray), 'x needs to be an array'
+    assert isinstance(param_shape, tuple)
+    k = int(np.prod(param_shape))
+    # Go through difference options
+    nd_x = len(x.shape)
+    if nd_x == 1:
+        if x.shape[0] == k:
+            # Can return as is (e.g. mu - x) will align in dimension
+            return x
+        else:
+            # Assume outer product type calculation
+            return np.tile(x, [k,1]).T
+    else:
+        # The last dimensions need to match
+        nd_param = len(param_shape)
+        assert nd_x >= nd_param, f'if x is 2 or more dimensions, the last {nd_param} must match the param_shape={param_shape}'
+        nd_x_last = x.shape[-nd_param:]
+        assert nd_x_last == param_shape, f'The last {nd_param} must match the param_shape={param_shape}: {nd_x_last}'
+        # If the dimensions match, then we can flatten the last dimensions
+        return x.reshape(x.shape[:-nd_param] + (k,))
+
+
+def reverse_broadcast_from_k(x: np.ndarray, param_shape: tuple) -> np.ndarray:
+    """Reverse the broadcasting performed by the broadcast_to_k function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        The array to reverse the broadcasting for.
+    param_shape : tuple
+        The original param_shape passed to broadcast_to_k.
+
+    Returns
+    -------
+    np.ndarray
+        The array with the original shape before broadcasting.
+    """
+    # Input checks
+    assert isinstance(x, np.ndarray), 'x needs to be an array'
+    assert isinstance(param_shape, tuple)
+    k = int(np.prod(param_shape))
+    assert x.shape[-1] == k, f"The last dimension of x should be k={k}"
+    # Reshape the array to the original shape
+    original_shape = x.shape[:-1] + param_shape
+    return x.reshape(original_shape)

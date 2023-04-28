@@ -11,6 +11,7 @@ from scipy.stats import norm, binom
 # External
 from sntn.dists import bvn
 from parameters import seed
+from sntn._bvn import valid_cdf_approach
 from sntn.utilities.utils import flip_last_axis, rho_debiased
 
 # Used for pytest
@@ -29,9 +30,27 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_shape)
+def test_bvn_cdf(shape:tuple, ndraw:int=100000) -> None:
+    """Make sure that the scipy CDF method words"""
+    mu1, sigma21, mu2, sigma22, rho = gen_params(shape, seed)
+    # Draw data and see how each method considers the point on the CDF
+    dist = bvn(mu1, sigma21, mu2, sigma22, rho)
+    x = dist.rvs(1)
+    for method in valid_cdf_approach:
+        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=method)
+        pval_method = dist.cdf(x)
+        breakpoint()
+
+    # Draw a large amount of data for each parameter and compare
+    for kk in np.ndindex(mu1.shape):
+        mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk = mu1[kk], sigma21[kk], mu2[kk], sigma22[kk], rho[kk]
+        dist_kk = bvn(mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk)
+        data_kk = dist_kk.rvs(ndraw)
+
+
+@pytest.mark.parametrize("shape", params_shape)
 def test_bvn_rvs(shape:tuple, ndraw:int=250, nsim:int=1000, tol=0.005) -> None:
     """Checks that the rvs method returns the expected empirical moments"""
-    # shape = params_shape[2];ndraw=250;nsim=1000;tol=0.005
     mu1, sigma21, mu2, sigma22, rho = gen_params(shape, seed)
     dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach='scipy')
     # Loop over nsim and store the data
@@ -60,7 +79,3 @@ def test_bvn_rvs(shape:tuple, ndraw:int=250, nsim:int=1000, tol=0.005) -> None:
     err_rho = np.max(np.abs(np.mean(holder_rho, 0) - rho))
     assert err_rho < tol, f'Expected average rhos to be within {tol}: {err_rho}'
 
-
-def test_bvn_scipy() -> None:
-    """Make sure that the scipy CDF method words..."""
-    None

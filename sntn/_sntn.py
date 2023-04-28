@@ -7,8 +7,8 @@ import numpy as np
 from scipy.stats import truncnorm, norm
 from inspect import getfullargspec
 # Internal
-from sntn.utilities.utils import broastcast_max_shape
 from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
+from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
 
 
 @staticmethod
@@ -111,22 +111,14 @@ class _nts():
 
     def cdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
+        # broadcast_to_k
         return None
-
-
+        
+    
     def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Calculates the marginal density of the NTS distribution at some point x"""
-        if not isinstance(x, np.ndarray):
-            x = np.asarray(x)
-        if len(x.shape) == 1:
-            # Assume that it is broadcasting for all k
-            x = np.tile(x, [self.k,1]).T
-        else:
-            # Last dims need to match paramateres
-            k_x = np.prod(x.shape[1:])
-            assert k_x == self.k, f'Last dim of x needs to match {self.k}'
-            if len(x.shape[1:]) > 1:
-                x = x.reshape((x.shape[0], self.k))
+        x = try2array(x)
+        x = broadcast_to_k(x, self.param_shape)
         # Calculate pdf
         term1 = self.sigma1 * self.Z
         m1 = (x - self.theta1) / self.sigma1
@@ -134,27 +126,16 @@ class _nts():
         term3 = (self.alpha-self.rho*m1) / np.sqrt(1-self.rho**2)
         f = norm.pdf(m1)*(norm.cdf(term2) - norm.cdf(term3)) / term1
         # Return
-        f = self.to_original_shape(f)
+        f = reverse_broadcast_from_k(f, self.param_shape)
         return f
 
-
-    def to_original_shape(self, z:np.ndarray) -> np.ndarray:
-        """Returns to the original shape"""
-        nz_shape = len(z.shape)
-        if nz_shape > 1:
-            # Assume its from rvs
-            return z.reshape((z.shape[0],)+self.param_shape)
-        else:
-            assert self.param_shape == z.shape, 'If not rvs, then shapes need to match'
-            return z.reshape(self.param_shape)
-        
 
     def rvs(self, ndraw:int, seed=None) -> np.ndarray:
         """Generate n samples from the distribution"""
         z1 = self.dist_Z1.rvs([ndraw,self.k], random_state=seed)
         z2 = self.dist_Z2.rvs([ndraw, self.k], random_state=seed)
         w = z1 + z2
-        w = self.to_original_shape(w)
+        w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
 
