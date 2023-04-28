@@ -15,7 +15,6 @@ from parameters import seed
 from sntn._bvn import valid_cdf_approach
 from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_dataframe
 
-
 # Used for pytest
 params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),][2:]
 
@@ -58,7 +57,7 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
         pval_kk = np.zeros(ndraw)
         for i in range(ndraw):
             # Calculate CDF value
-            pval_kk[i] = np.mean((x_kk[i,0] <= data_kk[:,0]) & (x_kk[i,1] <= data_kk[:,1]))
+            pval_kk[i] = np.mean((data_kk[:,0] <= x_kk[i,0]) & (data_kk[:,1] <= x_kk[i,1]))
         tmp_kk = pd.DataFrame({'value':pval_kk})
         for j, k in enumerate(kk):
             tmp_kk.insert(0,f'd{j+1}',k)
@@ -67,9 +66,9 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
     res_rvs = pd.concat(holder_sim).rename_axis('x').reset_index().assign(approach='rvs')
 
     # Merge and compare
-    breakpoint()
     cn_idx = list(np.setdiff1d(res_rvs.columns,['value','approach']))
     res_wide = pd.concat(objs=[res_approach, res_rvs],axis=0).pivot(index=cn_idx,columns='approach',values='value')
+    breakpoint()
     
 
 
