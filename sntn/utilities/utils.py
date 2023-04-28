@@ -11,6 +11,16 @@ from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
 
+def array_to_dataframe(arr:np.ndarray) -> pd.DataFrame:
+    """Converts an (n, d1, ..., dk) array into a DataFrame of dimension (n, d1*...*dk) with multindexing for the columns"""
+    shape = arr.shape
+    n = shape[0]
+    dims = shape[1:]
+    index = pd.MultiIndex.from_product([range(d) for d in dims], names=[f'd{i}' for i in range(1, len(dims)+1)])
+    values = arr.reshape(n, -1)
+    return pd.DataFrame(values, columns=index)
+
+
 def try2array(x) -> np.ndarray:
     """Checks to see if x is ndarray, and if not tries to make at least-1d"""
     if not isinstance(x, np.ndarray):

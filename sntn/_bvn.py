@@ -79,6 +79,7 @@ class _bvn():
         self.rho = rho
         self.sigma1 = np.sqrt(self.sigma21)
         self.sigma2 = np.sqrt(self.sigma22)
+        self.cdf_approach = cdf_approach
         # Create the Sigma covariance matrix, which is a (k,4 matrix) which will be looped through for cholesky decomposition as well
         self.Sigma = np.stack([self.sigma21, self.sigma1*self.sigma2*self.rho, self.sigma1*self.sigma2*self.rho, self.sigma22],axis=1)
         # Cholesky decomp used for for drawing data        
@@ -89,13 +90,31 @@ class _bvn():
 
     def cdf(self, x:np.ndarray) -> np.ndarray:
         """
-        Calculate the CDF of a pair of points. If x is a 1-d array, then it needs to match the dimensions of the constructor parameters
+        Calculate the CDF of a pair of points.
+
+        Parameters
+        ----------
+        x: np.ndarray
+            A (d1,d2,..,2,*param.shape) array. If param.shape=(1,) then x can be (d1,d2,..,2)
         """
-        x = try2array(x)
-        if nz_shape > 1:
-            1
+        # Convert to (d1,d2,..,2,k)
+        x = broadcast_to_k(try2array(x), self.param_shape)
+        if self.cdf_approach == 'scipy':
+            # Loop over each dimension, and use a scipy class
+            pval = np.zeros(x.shape[:-2] + x.shape[-1:])
+            for j in range(self.k):
+                pval[...,j] = cdf_j = MVN(mean=[self.mu1[j],self.mu2[j]],cov=self.Sigma[j].reshape([2,2])).cdf(np.take(x, j, -1))
+        elif self.cdf_approach == 'cox1':
+            2
+        elif self.cdf_approach == 'cox2':
+            3
+        elif self.cdf_approach == 'quad':
+            4
         else:
-            assert self.param_shape == z.shape, 'If x is a vector (or float), then it must match the dimensions of the input. For example, if mu1=[1,2,3], then '        
+            raise Warning('Woops we went down the wrong path!')
+        # Return to original scape
+        pval = reverse_broadcast_from_k(pval, self.param_shape)
+        return pval
 
 
     def rvs(self, ndraw:int, seed=None) -> np.ndarray:
@@ -120,7 +139,6 @@ class _bvn():
         return z
 
 
-    # h, k = -2, -np.infty
     def orthant(self, h, k, method='scipy'):
         # P(X1 >= h, X2 >=k)
         assert method in ['scipy','cox','sheppard']

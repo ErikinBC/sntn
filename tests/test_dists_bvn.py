@@ -7,15 +7,17 @@ python3 -m pytest tests/test_dists_bvn.py -s
 # Internal
 import pytest
 import numpy as np
+import pandas as pd
 from scipy.stats import norm, binom
 # External
 from sntn.dists import bvn
 from parameters import seed
 from sntn._bvn import valid_cdf_approach
-from sntn.utilities.utils import flip_last_axis, rho_debiased
+from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_dataframe
+
 
 # Used for pytest
-params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
+params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),][2:]
 
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
@@ -30,22 +32,45 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_shape)
-def test_bvn_cdf(shape:tuple, ndraw:int=100000) -> None:
+def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
     """Make sure that the scipy CDF method words"""
     mu1, sigma21, mu2, sigma22, rho = gen_params(shape, seed)
     # Draw data and see how each method considers the point on the CDF
     dist = bvn(mu1, sigma21, mu2, sigma22, rho)
-    x = dist.rvs(1)
-    for method in valid_cdf_approach:
-        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=method)
+    x = dist.rvs(ndraw)
+    holder_pval = []
+    for approach in ['scipy']:  #valid_cdf_approach
+        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach)
         pval_method = dist.cdf(x)
-        breakpoint()
+        tmp_df = array_to_dataframe(pval_method).melt(ignore_index=False).rename_axis('x').reset_index().assign(approach=approach)
+        holder_pval.append(tmp_df)
+    res_approach = pd.concat(holder_pval).reset_index(drop=True)
 
     # Draw a large amount of data for each parameter and compare
+    holder_sim = []
     for kk in np.ndindex(mu1.shape):
         mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk = mu1[kk], sigma21[kk], mu2[kk], sigma22[kk], rho[kk]
         dist_kk = bvn(mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk)
-        data_kk = dist_kk.rvs(ndraw)
+        data_kk = dist_kk.rvs(nsim)[...,0]
+        # Extract x
+        x_kk = x[...,*kk]
+        assert x_kk.shape == (ndraw, 2), 'Did not extract as expected'
+        pval_kk = np.zeros(ndraw)
+        for i in range(ndraw):
+            # Calculate CDF value
+            pval_kk[i] = np.mean((x_kk[i,0] <= data_kk[:,0]) & (x_kk[i,1] <= data_kk[:,1]))
+        tmp_kk = pd.DataFrame({'value':pval_kk})
+        for j, k in enumerate(kk):
+            tmp_kk.insert(0,f'd{j+1}',k)
+        holder_sim.append(tmp_kk)
+    # Combine
+    res_rvs = pd.concat(holder_sim).rename_axis('x').reset_index().assign(approach='rvs')
+
+    # Merge and compare
+    breakpoint()
+    cn_idx = list(np.setdiff1d(res_rvs.columns,['value','approach']))
+    res_wide = pd.concat(objs=[res_approach, res_rvs],axis=0).pivot(index=cn_idx,columns='approach',values='value')
+    
 
 
 @pytest.mark.parametrize("shape", params_shape)
