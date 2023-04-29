@@ -28,7 +28,7 @@ Sigma = np.array([[sigma21,sigma_rho],[sigma_rho,sigma22]])
 np.random.seed(1)
 n = 10
 X0 = np.random.randn(n, 2)
-h, k = mvn_pivot(X0[:,0], X0[:,1], mu[0], mu[1], sigma21, sigma22, rho)
+h, k, rho = mvn_pivot(X0[:,0], X0[:,1], mu[0], mu[1], sigma21, sigma22, rho)
 np.c_[h, k]
 # breakpoint()
 # mvn(mu, Sigma).cdf(X0)[(h < 0) & (k < 0)]

@@ -58,7 +58,7 @@ class _bvn_cox():
         if monte_carlo:
             fun_cdf = self.cdf_cox1
         # Process x1/x2
-        h, k, rho = np.broadcast_arrays(*mvn_pivot(x1, x2, self.mu1, self.mu2, self.sigma21, self.sigma22), self.rho)
+        h, k, rho = mvn_pivot(x1, x2, self.mu1, self.mu2, self.sigma21, self.sigma22, self.rho)
         res = fun_cdf(h, k, rho)
         # Ensure positivity (negativity can happen with Taylor expansion....)
         if not monte_carlo:

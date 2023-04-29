@@ -11,15 +11,14 @@ from scipy.stats import multivariate_normal as MVN
 from sklearn.linear_model import LinearRegression
 # Internal
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
+from sntn._cdf_bvn._approx import _bvn_cox
 
 # Accepted CDF method
 valid_cdf_approach = ['scipy', 'cox1', 'cox2', 'quad']
 
 
-
-
 class _bvn():
-    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy') -> None:
+    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy', **kwargs) -> None:
         """
         Main workhorse class for a bivariate normal distribution:
 
@@ -35,6 +34,7 @@ class _bvn():
         sigma22:                The variance of the second Gaussian
         rho:                    The correlation b/w X1, X2
         cdf_approach:           Which approach should be used to calculate CDF? (default='scipy')
+        kwargs:                 Any other keywords to pass into a cdf_approach (e.g. nsim=1000 for cox1)
 
         CDF approaches
         ----------
@@ -76,7 +76,11 @@ class _bvn():
         self.A = np.zeros(self.Sigma.shape)
         for i in range(self.k):
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
-
+        # Prepare cdf method
+        if self.cdf_approach == 'cox1':
+            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
+        if self.cdf_approach == 'cox2':
+            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
 
     def cdf(self, x:np.ndarray) -> np.ndarray:
         """
@@ -89,19 +93,8 @@ class _bvn():
         """
         # Convert to (d1,d2,..,2,k)
         x = broadcast_to_k(try2array(x), self.param_shape)
-        if self.cdf_approach == 'scipy':
-            # Loop over each dimension, and use a scipy class
-            pval = np.zeros(x.shape[:-2] + x.shape[-1:])
-            for j in range(self.k):
-                pval[...,j] = cdf_j = MVN(mean=[self.mu1[j],self.mu2[j]],cov=self.Sigma[j].reshape([2,2])).cdf(np.take(x, j, -1))
-        elif self.cdf_approach == 'cox1':
-            2
-        elif self.cdf_approach == 'cox2':
-            3
-        elif self.cdf_approach == 'quad':
-            4
-        else:
-            raise Warning('Woops we went down the wrong path!')
+        x1, x2 = np.take(...)
+        cdf = self.cdf_method()
         # Return to original scape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
