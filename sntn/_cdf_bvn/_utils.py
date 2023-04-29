@@ -6,6 +6,7 @@ Utilities for BVN
 import numpy as np
 from scipy.stats import norm
 
+
 def Phi(x:np.ndarray) -> np.ndarray:
     """Returns CDF of a standard normal"""
     return norm.cdf(x)
@@ -13,7 +14,6 @@ def Phi(x:np.ndarray) -> np.ndarray:
 def phi(x:np.ndarray) -> np.ndarray:
     """Returns PDF of a standard normal"""
     return norm.pdf(x)
-
 
 
 def sheppard(theta:np.ndarray, h:np.ndarray, k:np.ndarray) -> np.ndarray:
@@ -44,7 +44,7 @@ def orthant_to_cdf(orthant:np.ndarray, h:np.ndarray, k:np.ndarray):
     return P_hk
 
 
-def mvn_pivot(x1:np.ndarray, x2:np.ndarray, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray) -> tuple:
+def mvn_pivot(x1:np.ndarray, x2:np.ndarray, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray) -> tuple:
     """
     For any BVN([mu1,mu2],[sigma21,root(sigma21*sigma22)*rho,.,sigma22]).cdf(x1,x2), the CDF can be calculate for a standard normal BVN: BVN([0,0],[1,rho,rho,1]).cdf(h,k), where
     
@@ -55,11 +55,3 @@ def mvn_pivot(x1:np.ndarray, x2:np.ndarray, mu1:np.ndarray, mu2:np.ndarray, sigm
     k = (x2 - mu2) / np.sqrt(sigma22)
     return h, k
 
-def process_h_k_rho(h, k, rho) -> tuple:
-    """Make sure that h, k, & rho are the same shape for vectorization"""
-    if hasattr(h, 'shape') and hasattr(k, 'shape') and hasattr(rho, 'shape'):
-        if not (h.shape == k.shape == rho.shape):
-            h, k, rho = np.broadcast_arrays(h, k, rho)
-    else:
-        h, k, rho = np.broadcast_arrays(h, k, rho)
-    return h, k, rho
