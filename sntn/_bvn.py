@@ -10,11 +10,13 @@ from scipy.optimize import minimize
 from scipy.stats import multivariate_normal as MVN
 from sklearn.linear_model import LinearRegression
 # Internal
-from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
 from sntn._cdf_bvn._approx import _bvn_cox
+from sntn._cdf_bvn._brute import _bvn_scipy
+from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
+
 
 # Accepted CDF method
-valid_cdf_approach = ['scipy', 'cox1', 'cox2', 'quad']
+valid_cdf_approach = ['scipy', 'cox1', 'cox2']  #, 'quad'
 
 
 class _bvn():
@@ -81,6 +83,9 @@ class _bvn():
             self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
         if self.cdf_approach == 'cox2':
             self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
+        if self.cdf_approach == 'scipy':
+            self.cdf_method = _bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
+
 
     def cdf(self, x:np.ndarray) -> np.ndarray:
         """
@@ -111,7 +116,7 @@ class _bvn():
 
         Returns
         -------
-        An (ndraw,2,k) array of simulated values
+        An (ndraw,k,2) array of simulated values
         """
         np.random.seed(seed)
         x = np.random.randn(self.k, 2, ndraw)
@@ -119,6 +124,8 @@ class _bvn():
         z += np.expand_dims(np.c_[self.mu1, self.mu2].T,0)
         # Return to original shape
         z = reverse_broadcast_from_k(z, self.param_shape)
+        # Put second dimension last
+        z = z.transpose([0]+list(range(2,len(z.shape))) + [1])
         return z
 
 

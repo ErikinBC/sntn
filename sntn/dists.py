@@ -23,5 +23,5 @@ class nts(_nts):
 
 """Bivariate normal (BVN) inherits the _bvn class"""
 class bvn(_bvn):
-    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy') -> None:
-        super().__init__(mu1, sigma21, mu2, sigma22, rho, cdf_approach)
+    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy', **kwargs) -> None:
+        super().__init__(mu1, sigma21, mu2, sigma22, rho, cdf_approach, **kwargs)

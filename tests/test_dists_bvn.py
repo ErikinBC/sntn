@@ -39,6 +39,7 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
     x = dist.rvs(ndraw)
     holder_pval = []
     for approach in ['scipy']:  #valid_cdf_approach
+        breakpoint()
         dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach)
         pval_method = dist.cdf(x)
         tmp_df = array_to_dataframe(pval_method).melt(ignore_index=False).rename_axis('x').reset_index().assign(approach=approach)
@@ -79,19 +80,19 @@ def test_bvn_rvs(shape:tuple, ndraw:int=250, nsim:int=1000, tol=0.005) -> None:
     dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach='scipy')
     # Loop over nsim and store the data
     holder_rho = np.zeros((nsim,) + rho.shape)
-    holder_mu = np.zeros((nsim,2,) + mu1.shape)
+    holder_mu = np.zeros((nsim,) + mu1.shape + (2,))
     for i in range(nsim):
         x = dist.rvs(ndraw, i)  # Draw data
         # Moments
         mu_hat = np.mean(x, 0)
-        rho_hat = rho_debiased(np.take(x, indices=0, axis=1),np.take(x, indices=1, axis=1))
+        rho_hat = rho_debiased(np.take(x, indices=0, axis=-1),np.take(x, indices=1, axis=-1))
         # Store
         holder_rho[i] = rho_hat
         holder_mu[i] = mu_hat
     # Calculate z-scores 
-    mu0 = np.expand_dims(np.stack([mu1,mu2],axis=0), 0)
+    mu0 = np.expand_dims(np.stack([mu1,mu2],axis=-1), 0)
     Sigma0 = dist.Sigma[:,[0,3]].reshape(mu1.shape+(2,))
-    Sigma0 = np.expand_dims(np.sqrt(flip_last_axis(Sigma0) / ndraw), 0)
+    Sigma0 = np.expand_dims(np.sqrt(Sigma0 / ndraw), 0)
     zscore = (holder_mu - mu0) / Sigma0
     # Check that type-1 error is as expected
     alpha_check = [0.01, 0.05, 0.1]

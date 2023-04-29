@@ -8,10 +8,11 @@ from scipy.stats import norm, truncnorm
 from scipy.special import owens_t
 # Internal
 from sntn.utilities.utils import try2array
-from sntn._cdf_bvn._utils import Phi, phi, mvn_pivot, orthant_to_cdf, imills
+from sntn._cdf_bvn._utils import _bvn_base, Phi, phi, mvn_pivot, orthant_to_cdf, imills
 
-class _bvn_cox():
+class _bvn_cox(_bvn_base):
     def __init__(self, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray, rho_thresh:float=0.9, rho_max_w:float=0.5, monte_carlo:bool=False, nsim:int=1000, seed:int or None=None):
+        super().__init__(mu1, mu2, sigma21, sigma22, rho)
         """Method for obtaining the CDF of a bivariate normal using Cox's 1991 approximation method
         
         Parameters
@@ -30,9 +31,6 @@ class _bvn_cox():
         assert isinstance(monte_carlo, bool), 'monte_carlo needs to be a bool'
         assert (rho_thresh >= 0) and (rho_thresh <= 1), 'rho_thresh needs to be b/w 0-1'
         assert (rho_max_w >= 0) and (rho_max_w <= 1), 'rho_max_w needs to be b/w [0,1]'
-        assert np.all((rho >= -1) & (rho <= 1)), 'rho must be b/w [-1,1]'
-        # Process data
-        self.mu1, self.mu2, self.sigma21, self.sigma22, self.rho = np.broadcast_arrays(mu1, mu2, sigma21, sigma22, rho)
         # Assign for later
         self.rho_thresh = rho_thresh
         self.rho_max_w = rho_max_w
