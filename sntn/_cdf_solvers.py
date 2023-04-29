@@ -10,74 +10,16 @@ from scipy.integrate import quad
 # Internal
 from sntn.dists import tnorm
 
-#####################
-# --- UTILITIES --- #
-
-def imills(a:np.ndarray) -> np.ndarray:
-    """Returns the inverse mills ratio"""
-    return norm.pdf(a)/norm.cdf(-a)
-
-
-def cdf_to_orthant(cdf:np.ndarray, h:np.ndarray, k:np.ndarray):
-    """The orthant and CDF probabilities have a 1:1 mapping:
-    
-    P(X > h, X > k) = 1 - (Phi(h) + Phi(k)) + MVN(X <= h, X<= k)
-    """
-    L_hk = 1 - (norm.cdf(h) + norm.cdf(k)) + cdf
-    return L_hk
-
-
-def orthant_to_cdf(orthant:np.ndarray, h:np.ndarray, k:np.ndarray):
-    """The orthant and CDF probabilities have a 1:1 mapping:
-    
-    P(X <= h, X<= k) = P(X > h, X > k) - 1 + (Phi(h) + Phi(k))
-    """
-    P_hk = orthant - 1 + norm.cdf(h) + norm.cdf(k)
-    return P_hk
-
-
-def mvn_pivot(x1:np.ndarray, x2:np.ndarray, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray) -> tuple:
-    """
-    For any BVN([mu1,mu2],[sigma21,root(sigma21*sigma22)*rho,.,sigma22]).cdf(x1,x2), the CDF can be calculate for a standard normal BVN: BVN([0,0],[1,rho,rho,1]).cdf(h,k), where
-    
-    h:              (x1 - mu1) / sqrt(sigma21)
-    k:              (x2 - mu2) / sqrt(sigma22)
-    """
-    h = (x1 - mu1) / np.sqrt(sigma21)
-    k = (x2 - mu2) / np.sqrt(sigma22)
-    return h, k
 
 
 ###########################
 # ---  APPROXIMATIONS --- #
 
-# --- (i) Cox1 --- #
-def cdf_cox1(h:np.ndarray, k:np.ndarray, rho:np.ndarray, nsim:int=1000, seed:int or None=None) -> np.ndarray:
-    """
-    Implements a Monte Carlo approach of estimating the orthant probability:
-
-    L(h, k, rho) = P(X1 > h)*P(X2 > k | X1 > h)
-                 = Phi(-h) * E[ Phi((rho*X1 - k)/sqrt(1-rho^2)) | X1 > h] 
-    
-    Where X1 > h is simply a truncated Gaussain: TN(0,1,h,infty)
-
-    Parameters
-    ----------
-    h:             A (d1,d2,...,dk) array of normalized X1's
-    k:             A (d1,d2,...,dk) array of normalized X1's
-    rho:           A (d1,d2,...,dk) array of correlation coefficients
-    """
-    dist = truncnorm(loc=0, scale=1, a=h, b=np.infty)
-    rvs = dist.rvs((nsim,)+h.shape, seed)
-    orthant = norm.cdf(-h) * np.mean(norm.cdf((rho*rvs - k)/np.sqrt(1-rho**2)),0)
-    cdf = orthant_to_cdf(orthant, h, k)
-    return cdf
-
 
 import pandas as pd
 from scipy.stats import multivariate_normal as mvn
-mu = np.array([1,-1])
-rho = -0.1
+mu = np.array([+1,-1.5])
+rho = -0.95
 sigma21 = 3
 sigma22 = 2
 sigma1, sigma2 = np.sqrt(sigma21), np.sqrt(sigma22)
@@ -87,14 +29,33 @@ np.random.seed(1)
 n = 10
 X0 = np.random.randn(n, 2)
 h, k = mvn_pivot(X0[:,0], X0[:,1], mu[0], mu[1], sigma21, sigma22, rho)
-pd.DataFrame({'s':mvn(mu, Sigma).cdf(X0),'c':cox1(h, k, rho, nsim=10000, seed=1)})
+np.c_[h, k]
+# breakpoint()
+# mvn(mu, Sigma).cdf(X0)[(h < 0) & (k < 0)]
+pd.DataFrame({'s':mvn(mu, Sigma).cdf(X0),'c1':cdf_cox2(h, k, rho, False),'c2':cdf_cox2(h, k, rho, True)})
 
 
 
+# --- (i) Cox3 --- #
+def cdf_cox3(h:np.ndarray, k:np.ndarray, rho:np.ndarray) -> np.ndarray:
+    """
+    Approximates the orthant probability using second order approximation (see eq. 4 in paper "A Simple Approximation for Bivariate & Triviate Normal Integrals")
 
-# --- (ii) Cox2 --- #
+    L(h, k, rho) = P(X1 > h)*P(X2 > k | X1 > h)
+                 ~ Phi(-h) * Phi((rho*u[h] - k)/sqrt(1-rho^2))
+                 = Phi(-h) * Phi(xi(h,k,rho))
+                 u[h] = E(X1 | X1 > h)
+                 xi(h,k,rho) = (rho*u[h] - k)/sqrt(1-rho^2)
+    
+    Parameters
+    ----------
+    See cdf_cox1
+    """
+    return None
 
-# --- (iii) Owen --- #
+
+
+# --- (iv) Owen --- #
 def cdf_owen(h:np.ndarray, k:np.ndarray, rho:np.ndarray) -> np.ndarray:
     """Owen's (1956) method"""
     # Calculate delta_hk (either zero or one)
@@ -110,16 +71,13 @@ def cdf_owen(h:np.ndarray, k:np.ndarray, rho:np.ndarray) -> np.ndarray:
     return cdf
 
 
-x = np.random.randn(100,2)
-from timeit import timeit
-timeit('owens_t(x[:,0], x[:,1])',globals=globals(), number=100000)
+# --- (v) Lin --- #
 
-
-
-# --- (iv) Lin --- #
-
-# --- (v) Dresner --- #
+# --- (vi) Dresner --- #
 
 
 #######################
 # ---  QUADRATURE --- #
+
+# for loops: https://docs.scipy.org/doc/scipy/tutorial/integrate.html
+# https://docs.scipy.org/doc/scipy/reference/generated/scipy.integrate.quad_vec.html

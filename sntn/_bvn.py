@@ -17,12 +17,6 @@ valid_cdf_approach = ['scipy', 'cox1', 'cox2', 'quad']
 
 
 
-@staticmethod
-def sheppard(theta:np.ndarray, h:np.ndarray, k:np.ndarray) -> np.ndarray:
-    """Returns the function value for doing a BVN integral"""
-    f = (1/(2*np.pi))*np.exp(-0.5*(h**2+k**2-2*h*k*np.cos(theta))/(np.sin(theta)**2))
-    return f
-
 
 class _bvn():
     def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy') -> None:
