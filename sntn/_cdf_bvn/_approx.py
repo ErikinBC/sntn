@@ -11,12 +11,11 @@ from sntn.utilities.utils import try2array
 from sntn._cdf_bvn._utils import Phi, phi, mvn_pivot, orthant_to_cdf, imills
 
 class _bvn_cox():
-    def __init__(self, x1:np.ndarray, x2:np.ndarray, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray, rho_thresh:float=0.9, rho_max_w:float=0.5, monte_carlo:bool=False, nsim:int=1000, seed:int or None=None):
+    def __init__(self, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray, rho_thresh:float=0.9, rho_max_w:float=0.5, monte_carlo:bool=False, nsim:int=1000, seed:int or None=None):
         """Method for obtaining the CDF of a bivariate normal using Cox's 1991 approximation method
         
         Parameters
         ----------
-        x{12}:                      A (d1,d2,..dk) array of the first and second data coordinate
         mu{12}:                     A (d1,d2,..dk) array of means
         sigma2{12}:                 A (d1,d2,..dk) array of variances
         rho:                        A (d1,d2,..dk) array of correlation coefficients
@@ -30,12 +29,11 @@ class _bvn_cox():
         assert isinstance(nsim, int) and (nsim > 0), 'nsim needs to be a strictly positive int'
         assert isinstance(monte_carlo, bool), 'monte_carlo needs to be a bool'
         assert (rho_thresh >= 0) and (rho_thresh <= 1), 'rho_thresh needs to be b/w 0-1'
-        assert (rho_max_w >= 0) and (rho_max_w <= 1), 'rho_max_w needs to be b/w 0-1'
+        assert (rho_max_w >= 0) and (rho_max_w <= 1), 'rho_max_w needs to be b/w [0,1]'
+        assert np.all((rho >= -1) & (rho <= 1)), 'rho must be b/w [-1,1]'
         # Process data
-        x1, x2, mu1, mu2, sigma21, sigma22, rho = np.broadcast_arrays(x1, x2, mu1, mu2, sigma21, sigma22, rho)
+        self.mu1, self.mu2, self.sigma21, self.sigma22, self.rho = np.broadcast_arrays(mu1, mu2, sigma21, sigma22, rho)
         # Assign for later
-        self.h, self.k = mvn_pivot(x1, x2, mu1, mu2, sigma21, sigma22)
-        self.rho = rho
         self.rho_thresh = rho_thresh
         self.rho_max_w = rho_max_w
         self.monte_carlo = monte_carlo
@@ -43,15 +41,31 @@ class _bvn_cox():
         self.seed = seed
 
 
-    def cdf(self) -> np.ndarray:
-        """Calls either cdf_cox1 (monte carlo) or cdf_cox2 (approximation)"""
-        if self.monte_carlo:
-            return self.cdf_cox1()
-        else:
-            return self.cdf_cox2()
+    def cdf(self, x1:np.ndarray, x2:np.ndarray, monte_carlo=None) -> np.ndarray:
+        """
+        Will default ot call cdf_cox1 (monte carlo) or cdf_cox2 (approximation) depending on choice at construction (but can be overwritten with function call)
+        
+        Parameters
+        ----------
+        x{12}:                      A (d1,d2,..dk) array of the first and second data coordinate
+        
+        """
+        # Assign default if not provided
+        if monte_carlo is None:
+            monte_carlo = self.monte_carlo
+        assert isinstance(monte_carlo, bool), 'if monte_carlo overrides, needs to be bool'
+        fun_cdf = self.cdf_cox2
+        if monte_carlo:
+            fun_cdf = self.cdf_cox1
+        # Process x1/x2
+        h, k, rho = np.broadcast_arrays(*mvn_pivot(x1, x2, self.mu1, self.mu2, self.sigma21, self.sigma22), self.rho)
+        res = fun_cdf(h, k, rho)
+        # Ensure positivity (negativity can happen with Taylor expansion....)
+        if not monte_carlo:
+            res = np.clip(res, 0, 1)
+        return res
 
-
-    def cdf_cox1(self) -> np.ndarray:
+    def cdf_cox1(self, h, k, rho) -> np.ndarray:
         """
         Implements a Monte Carlo approach of estimating the orthant probability:
 
@@ -69,15 +83,17 @@ class _bvn_cox():
         seed:          Will be passed into rvs method of truncnorm (default=None)
         """
         # Draw data to approximate E[...] term
-        dist = truncnorm(loc=0, scale=1, a=self.h, b=np.infty)
-        rvs = dist.rvs((self.nsim,)+self.h.shape, self.seed)
-        orthant = Phi(-self.h) * np.mean(Phi((self.rho*rvs - self.k)/np.sqrt(1-self.rho**2)),0)
+        dist = truncnorm(loc=0, scale=1, a=h, b=np.infty)
+        rvs = dist.rvs((self.nsim,)+h.shape, self.seed)
+        orthant = Phi(-h) * np.mean(Phi((rho*rvs - k)/np.sqrt(1-rho**2)),0)
         # Convert to CDF
-        cdf = orthant_to_cdf(orthant, self.h, self.k)
+        cdf = orthant_to_cdf(orthant, h, k)
+        # In case orthant probabilities map to a negative value
+        cdf = np.clip(cdf, 1/(self.nsim + 1), 1)
         return cdf
 
 
-    def cdf_cox2(self) -> np.ndarray:
+    def cdf_cox2(self, h, k, rho) -> np.ndarray:
         """
         Approximates the orthant probability using approach suggested by Cox (1991) and then converts to CDF. Uses a blended averages of equation 3/4, where weight is 50/50 as rho approaches 1
 
@@ -87,15 +103,15 @@ class _bvn_cox():
         rho_thresh: 
         """
         # Get baseline results
-        orthant = self._orthant_cox_rho(self.h, self.k, self.rho, first_order=False)
+        orthant = self._orthant_cox_rho(h, k, rho, first_order=False)
         # If there are any rho's above 90%, we will adjust the estimate
         idx_tail = np.abs(rho) >= self.rho_thresh
         if np.any(idx_tail):
             orthant[idx_tail] = (1-self.rho_max_w) * orthant[idx_tail]
-            orthant_tail = self._orthant_cox_rho(self.h[idx_tail], self.k[idx_tail], self.rho[idx_tail], first_order=True)
+            orthant_tail = self._orthant_cox_rho(h[idx_tail], k[idx_tail], rho[idx_tail], first_order=True)
             orthant[idx_tail] += self.rho_max_w * orthant_tail
         # Convert to cdf and return
-        cdf = orthant_to_cdf(orthant, self.h, self.k)
+        cdf = orthant_to_cdf(orthant, h, k)
         return cdf
     
 
@@ -167,24 +183,3 @@ class _bvn_cox():
             orthant = Phi_h * Phi_xi
         return orthant
 
-
-import pandas as pd
-from scipy.stats import multivariate_normal as mvn
-# Generate data
-mu1, mu2 = 0, 0
-mu = np.array([mu1, mu2])
-rho = +0.2
-sigma21 = 1
-sigma22 = 1
-sigma1, sigma2 = np.sqrt(sigma21), np.sqrt(sigma22)
-sigma_rho = np.sqrt(sigma21) * np.sqrt(sigma22) * rho
-Sigma = np.array([[sigma21,sigma_rho],[sigma_rho,sigma22]])
-np.random.seed(1)
-X0 = np.random.randn(10, 2)
-# Estimate CDF
-cdf_scipy = mvn(mu, Sigma).cdf(X0)
-estimator = _bvn_cox(X0[:,0], X0[:,1], mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, nsim=10000)
-cdf_mc = estimator.cdf()
-estimator.monte_carlo = False
-cdf_cox = estimator.cdf()
-pd.DataFrame({'x0':X0[:,0],'x1':X0[:,1],'scipy':cdf_scipy, 'mc':cdf_mc, 'cox':cdf_cox})
