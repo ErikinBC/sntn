@@ -9,6 +9,11 @@ from scipy.stats import multivariate_normal as mvn
 from sntn._cdf_bvn._utils import _bvn_base, mvn_pivot
 
 
+# if method == 'sheppard':
+#     pval = np.array([quad(self.sheppard, np.arccos(self.rho), np.pi, args=(y1,y2))[0] for y1, y2 in zip(Y1,Y2)])
+#     return pval
+
+
 class _bvn_scipy(_bvn_base):
     def __init__(self, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray):
         super().__init__(mu1, mu2, sigma21, sigma22, rho)

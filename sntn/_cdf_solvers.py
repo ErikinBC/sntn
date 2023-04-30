@@ -30,7 +30,6 @@ n = 10
 X0 = np.random.randn(n, 2)
 h, k, rho = mvn_pivot(X0[:,0], X0[:,1], mu[0], mu[1], sigma21, sigma22, rho)
 np.c_[h, k]
-# breakpoint()
 # mvn(mu, Sigma).cdf(X0)[(h < 0) & (k < 0)]
 pd.DataFrame({'s':mvn(mu, Sigma).cdf(X0),'c1':cdf_cox2(h, k, rho, False),'c2':cdf_cox2(h, k, rho, True)})
 

@@ -60,6 +60,15 @@ class _bvn():
         assert cdf_approach in valid_cdf_approach, f'cdf approach must be one of: {valid_cdf_approach}'
         # Capture the original shape for later transformations
         self.param_shape = mu1.shape
+        # Prepare cdf method (important to assign before we flatten as well)
+        self.cdf_approach = cdf_approach
+        if self.cdf_approach == 'cox1':
+            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
+        if self.cdf_approach == 'cox2':
+            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
+        if self.cdf_approach == 'scipy':
+            self.cdf_method = _bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
+        
         # Flatten parameters
         mu1, sigma21, mu2, sigma22, rho = [x.flatten() for x in [mu1, sigma21, mu2, sigma22, rho]]
         # Assign attributes
@@ -71,37 +80,41 @@ class _bvn():
         self.rho = rho
         self.sigma1 = np.sqrt(self.sigma21)
         self.sigma2 = np.sqrt(self.sigma22)
-        self.cdf_approach = cdf_approach
+        
         # Create the Sigma covariance matrix, which is a (k,4 matrix) which will be looped through for cholesky decomposition as well
         self.Sigma = np.stack([self.sigma21, self.sigma1*self.sigma2*self.rho, self.sigma1*self.sigma2*self.rho, self.sigma22],axis=1)
         # Cholesky decomp used for for drawing data        
         self.A = np.zeros(self.Sigma.shape)
         for i in range(self.k):
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
-        # Prepare cdf method
-        if self.cdf_approach == 'cox1':
-            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
-        if self.cdf_approach == 'cox2':
-            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
-        if self.cdf_approach == 'scipy':
-            self.cdf_method = _bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
 
 
-    def cdf(self, x:np.ndarray) -> np.ndarray:
+    def cdf(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> np.ndarray:
         """
-        Calculate the CDF of a pair of points.
+        Calculates the CDF for an array with two dimensions (i.e. bivariate normal)
 
         Parameters
         ----------
-        x: np.ndarray
-            A (d1,d2,..,2,*param.shape) array. If param.shape=(1,) then x can be (d1,d2,..,2)
+        x (np.ndarray):
+            A (n1,..,nj,d1,..,dk,2) array
+        x1 (np.ndarray):
+            If x is not specified...
+        x2 (np.ndarray):
+            Second coordinate if x not specified
+
+        Returns
+        -------
+        An (n1,..,nj,d1,..,dk) array of CDF values
         """
-        # Convert to (d1,d2,..,2,k)
-        x = broadcast_to_k(try2array(x), self.param_shape)
-        x1, x2 = np.take(...)
-        cdf = self.cdf_method()
-        # Return to original scape
-        pval = reverse_broadcast_from_k(pval, self.param_shape)
+        if x is None:
+            assert x1 is not None and x2 is not None, 'if x is not specified, then x1/x2 need to be'
+            x1, x2 = np.broadcast_arrays(x1, x2)
+        else:
+            x = np.asarray(x)
+            assert x.shape[-1] == 2, 'if x is given (rather than x1/x2), last dimension needs to be of size 2'
+            # Take out x1/x2
+            x1, x2 = np.take(x, 0, -1), np.take(x, 1, -1)
+        pval = self.cdf_method.cdf(x1, x2)
         return pval
 
 
@@ -116,7 +129,7 @@ class _bvn():
 
         Returns
         -------
-        An (ndraw,k,2) array of simulated values
+        An (ndraw,d1,...dk,2) array of simulated values
         """
         np.random.seed(seed)
         x = np.random.randn(self.k, 2, ndraw)
@@ -127,35 +140,3 @@ class _bvn():
         # Put second dimension last
         z = z.transpose([0]+list(range(2,len(z.shape))) + [1])
         return z
-
-
-    def orthant(self, h, k, method='scipy'):
-        # P(X1 >= h, X2 >=k)
-        assert method in ['scipy','cox','sheppard']
-        if isinstance(h,int) or isinstance(h, float):
-            h, k = np.array([h]), np.array([k])
-        else:
-            assert isinstance(h,np.ndarray) and isinstance(k,np.ndarray)
-        assert len(h) == len(k)
-        # assert np.all(h >= 0) and np.all(k >= 0)
-        # Calculate the number of standard deviations away it is        
-        Y = (np.c_[h, k] - self.mu)/np.sqrt(self.sigma)
-        Y1, Y2 = Y[:,0], Y[:,1]
-        
-        # (i) scipy: L(h, k)=1-(F1(h)+F2(k))+F12(h, k)
-        if method == 'scipy':
-            sp_bvn = MVN([0, 0],[[1,self.rho],[self.rho,1]])
-            pval = 1+sp_bvn.cdf(Y)-(norm.cdf(Y1)+norm.cdf(Y2))
-            return pval 
-
-        # A Simple Approximation for Bivariate and Trivariate Normal Integrals
-        if method == 'cox':
-            mu_a = self.imills(Y1)
-            root = np.sqrt(1-self.rho**2)
-            xi = (self.rho * mu_a - Y2) / root
-            pval = norm.cdf(-Y1) * norm.cdf(xi)
-            return pval
-
-        if method == 'sheppard':
-            pval = np.array([quad(self.sheppard, np.arccos(self.rho), np.pi, args=(y1,y2))[0] for y1, y2 in zip(Y1,Y2)])
-            return pval

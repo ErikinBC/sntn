@@ -16,7 +16,7 @@ from sntn._bvn import valid_cdf_approach
 from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_dataframe
 
 # Used for pytest
-params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),][2:]
+params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
 
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
@@ -31,29 +31,28 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_shape)
-def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
+def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000, tol:float=0.03) -> None:
     """Make sure that the scipy CDF method words"""
     mu1, sigma21, mu2, sigma22, rho = gen_params(shape, seed)
     # Draw data and see how each method considers the point on the CDF
     dist = bvn(mu1, sigma21, mu2, sigma22, rho)
     x = dist.rvs(ndraw)
     holder_pval = []
-    for approach in ['scipy']:  #valid_cdf_approach
-        breakpoint()
-        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach)
+    for approach in valid_cdf_approach:  #['scipy']
+        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach, rho_max_w=0.25)
         pval_method = dist.cdf(x)
         tmp_df = array_to_dataframe(pval_method).melt(ignore_index=False).rename_axis('x').reset_index().assign(approach=approach)
         holder_pval.append(tmp_df)
     res_approach = pd.concat(holder_pval).reset_index(drop=True)
-
+    
     # Draw a large amount of data for each parameter and compare
     holder_sim = []
     for kk in np.ndindex(mu1.shape):
         mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk = mu1[kk], sigma21[kk], mu2[kk], sigma22[kk], rho[kk]
         dist_kk = bvn(mu1_kk, sigma21_kk, mu2_kk, sigma22_kk, rho_kk)
-        data_kk = dist_kk.rvs(nsim)[...,0]
+        data_kk = np.squeeze(dist_kk.rvs(nsim))
         # Extract x
-        x_kk = x[...,*kk]
+        x_kk = x[...,*kk,:]
         assert x_kk.shape == (ndraw, 2), 'Did not extract as expected'
         pval_kk = np.zeros(ndraw)
         for i in range(ndraw):
@@ -69,7 +68,13 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000) -> None:
     # Merge and compare
     cn_idx = list(np.setdiff1d(res_rvs.columns,['value','approach']))
     res_wide = pd.concat(objs=[res_approach, res_rvs],axis=0).pivot(index=cn_idx,columns='approach',values='value')
-    breakpoint()
+    cn_gt = 'scipy'
+    res_long = res_wide.melt(cn_gt,ignore_index=False).assign(aerr=lambda x: (x['value']-x[cn_gt]).abs())
+    max_err = res_long['aerr'].max()
+    try:
+        assert max_err < tol, f'Woops! {max_err} is greater than {tol}'
+    except:
+        breakpoint()
     
 
 
