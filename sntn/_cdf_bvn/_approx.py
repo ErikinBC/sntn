@@ -10,6 +10,10 @@ from scipy.special import owens_t
 from sntn.utilities.utils import try2array
 from sntn._cdf_bvn._utils import _bvn_base, Phi, phi, mvn_pivot, orthant_to_cdf, imills
 
+# For the _bvn class
+valid_cox_approach = ['cox1', 'cox2']
+
+
 class _bvn_cox(_bvn_base):
     def __init__(self, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray, rho_thresh:float=0.9, rho_max_w:float=0.5, monte_carlo:bool=False, nsim:int=1000, seed:int or None=None):
         super().__init__(mu1, mu2, sigma21, sigma22, rho)

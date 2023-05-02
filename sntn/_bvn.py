@@ -10,13 +10,13 @@ from scipy.optimize import minimize
 from scipy.stats import multivariate_normal as MVN
 from sklearn.linear_model import LinearRegression
 # Internal
-from sntn._cdf_bvn._approx import _bvn_cox
-from sntn._cdf_bvn._brute import _bvn_scipy
+from sntn._cdf_bvn._approx import _bvn_cox, valid_cox_approach
+from sntn._cdf_bvn._brute import _bvn_scipy, valid_quad_approach, _bvn_quad
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
 
 
-# Accepted CDF method
-valid_cdf_approach = ['scipy', 'cox1', 'cox2']  #, 'quad'
+# Accepted CDF methods
+valid_cdf_approach = ['scipy'] + valid_cox_approach + valid_quad_approach
 
 
 class _bvn():
@@ -68,6 +68,12 @@ class _bvn():
             self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
         if self.cdf_approach == 'scipy':
             self.cdf_method = _bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
+        if self.cdf_approach == 'owen':
+            self.cdf_method = _bvn_quad(mu1, mu2, sigma21, sigma22, rho, 'owen')
+        if self.cdf_approach == 'drezner1':
+            self.cdf_method = _bvn_quad(mu1, mu2, sigma21, sigma22, rho, 'drezner1')
+        if self.cdf_approach == 'drezner2':
+            self.cdf_method = _bvn_quad(mu1, mu2, sigma21, sigma22, rho, 'drezner2')
         
         # Flatten parameters
         mu1, sigma21, mu2, sigma22, rho = [x.flatten() for x in [mu1, sigma21, mu2, sigma22, rho]]

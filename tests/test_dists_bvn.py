@@ -38,7 +38,8 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000, tol:float=0.03) -> 
     dist = bvn(mu1, sigma21, mu2, sigma22, rho)
     x = dist.rvs(ndraw)
     holder_pval = []
-    for approach in valid_cdf_approach:  #['scipy']
+    for approach in valid_cdf_approach:
+        print(f'--- Running approach {approach} ---')
         dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach, rho_max_w=0.25)
         pval_method = dist.cdf(x)
         tmp_df = array_to_dataframe(pval_method).melt(ignore_index=False).rename_axis('x').reset_index().assign(approach=approach)
@@ -71,10 +72,7 @@ def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000, tol:float=0.03) -> 
     cn_gt = 'scipy'
     res_long = res_wide.melt(cn_gt,ignore_index=False).assign(aerr=lambda x: (x['value']-x[cn_gt]).abs())
     max_err = res_long['aerr'].max()
-    try:
-        assert max_err < tol, f'Woops! {max_err} is greater than {tol}'
-    except:
-        breakpoint()
+    assert max_err < tol, f'Woops! {max_err} is greater than {tol}'
     
 
 

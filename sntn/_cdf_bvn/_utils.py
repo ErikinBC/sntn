@@ -25,11 +25,6 @@ def phi(x:np.ndarray) -> np.ndarray:
     return norm.pdf(x)
 
 
-def sheppard(theta:np.ndarray, h:np.ndarray, k:np.ndarray) -> np.ndarray:
-    """Returns the function value for doing a BVN integral"""
-    f = (1/(2*np.pi))*np.exp(-0.5*(h**2+k**2-2*h*k*np.cos(theta))/(np.sin(theta)**2))
-    return f
-
 def imills(a:np.ndarray) -> np.ndarray:
     """Returns the inverse mills ratio"""
     return norm.pdf(a)/norm.cdf(-a)
