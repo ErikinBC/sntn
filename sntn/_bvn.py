@@ -41,13 +41,15 @@ class _bvn():
         CDF approaches
         ----------
         scipy:                  Uses a grid approach for each BVN pair
-        cox1:                   The simplest approach to estimate CDF (first-order)
-        cox2:                   Includes second-order approximation terms
-        quad:                   A quadrature approach to estimate the integral
-
+        cox1:                   Uses a monte carlo approach to estimate CDF (specify "nsim" as a kwarg)
+        cox2:                   Uses an approximation of the expectation term
+        owen:                   Uses Owen's T function
+        drezner1:               Uses fixed_quad to estimate CDF (in "rho" space)
+        drezner2:               Uses fixed_quad to estimate CDF (in "cos" space)
 
         Methods
         -------
+        TO-DO
 
         """
         # Process inputs
