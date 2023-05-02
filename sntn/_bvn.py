@@ -5,22 +5,18 @@ Main bivariate normal class
 # External
 import numpy as np
 from scipy.linalg import cholesky
-from scipy.integrate import quad
-from scipy.optimize import minimize
-from scipy.stats import multivariate_normal as MVN
-from sklearn.linear_model import LinearRegression
 # Internal
+from sntn._cdf_bvn._utils import cdf_to_orthant
 from sntn._cdf_bvn._approx import _bvn_cox, valid_cox_approach
 from sntn._cdf_bvn._brute import _bvn_scipy, valid_quad_approach, _bvn_quad
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
-
 
 # Accepted CDF methods
 valid_cdf_approach = ['scipy'] + valid_cox_approach + valid_quad_approach
 
 
 class _bvn():
-    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='scipy', **kwargs) -> None:
+    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='owen', **kwargs) -> None:
         """
         Main workhorse class for a bivariate normal distribution:
 
@@ -125,6 +121,14 @@ class _bvn():
         pval = self.cdf_method.cdf(x1, x2)
         return pval
 
+
+    def orthant(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> np.ndarray:
+        """
+        Wrapper on the cdf method that returns the orthant probabilities
+        """
+        cdf_to_orthant(cdf, h, k)
+        return self.cdf(x, x1, x2)
+    
 
     def rvs(self, ndraw:int, seed=None) -> np.ndarray:
         """

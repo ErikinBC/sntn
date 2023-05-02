@@ -5,7 +5,6 @@ Fully specified SNTN distribution
 # External
 import numpy as np
 from scipy.stats import truncnorm, norm
-from inspect import getfullargspec
 # Internal
 from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
@@ -44,9 +43,9 @@ class _nts():
         Parameters
         ----------
         mu1:             Mean of the unconditional gaussian (can be None is fix_mu=True)
-        tau21:            The variance of the unconditional gaussian (must be strictly positive)
+        tau21:           The variance of the unconditional gaussian (must be strictly positive)
         mu2:             The mean of the truncated Gaussian (can be None is fix_mu=True)
-        tau22:            The variance of the unconditional gaussian (must be strictly positive)
+        tau22:           The variance of the unconditional gaussian (must be strictly positive)
         a:               The lowerbound of the truncated Gaussian (must be smaller than b)
         b:               The upperbound of the truncated Gaussian (must be larger than a)
         c1:              A weighting constant for Z1 (must be >0, default=1)
@@ -69,11 +68,10 @@ class _nts():
         cdf:            Cumulative distribution function
         pdf:            Density function
         ppf:            Quantile function
-
         """
         # Input checks and broadcasting
         if fix_mu:
-            mu1, mu2 = self._mus_are_equal(mu1, mu2)
+            mu1, mu2 = _mus_are_equal(mu1, mu2)
         mu1, mu2, tau21, tau22, a, b, c1, c2 = broastcast_max_shape(mu1, mu2, tau21, tau22, a, b, c1, c2)
         assert np.all(tau21 > 0), 'tau21 needs to be strictly greater than zero'
         assert np.all(tau22 > 0), 'tau22 needs to be strictly greater than zero'
@@ -115,6 +113,12 @@ class _nts():
         return None
         
     
+    def ppf(self, p:np.ndarray, **kwargs) -> np.ndarray:
+        """Returns the quantile function"""
+        # broadcast_to_k
+        return None
+    
+
     def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Calculates the marginal density of the NTS distribution at some point x"""
         x = try2array(x)

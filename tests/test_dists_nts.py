@@ -31,6 +31,17 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_shape)
+def test_nts_cdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
+    """Checks that the CDF aligns with the RVS""" 
+    shape = params_shape[2]
+    # Draw different distributions
+    params_shape
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+
+
+
+@pytest.mark.parametrize("shape", params_shape)
 def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
     """Checks that:
     i) CDF integrates to one
@@ -64,6 +75,7 @@ def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
 
 @pytest.mark.parametrize("shape", params_shape)
 def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
+    """Checks that the random variables align with expected mean"""
     # Draw different distributions
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
     dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
@@ -72,12 +84,17 @@ def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
     mu_rvs = data.mean(0)
     mu_theory = dist.mean()
     assert np.all(np.abs(mu_rvs - mu_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
+    # # Check median
+    # med_rvs = np.median(data, 0)
+    # med_theory = dist.ppf(0.5)
+    # assert np.all(np.abs(med_rvs - med_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
     
 
 
 if __name__ == "__main__":
     print('--- test_nts_rvs ---')
     test_nts_rvs()
+    test_nts_pdf()
 
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

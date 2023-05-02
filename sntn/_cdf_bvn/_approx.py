@@ -43,7 +43,7 @@ class _bvn_cox(_bvn_base):
         self.seed = seed
 
 
-    def cdf(self, x1:np.ndarray, x2:np.ndarray, monte_carlo=None) -> np.ndarray:
+    def cdf(self, x1:np.ndarray, x2:np.ndarray, monte_carlo=None, return_orthant:bool=False) -> np.ndarray:
         """
         Will default ot call cdf_cox1 (monte carlo) or cdf_cox2 (approximation) depending on choice at construction (but can be overwritten with function call)
         
@@ -65,6 +65,8 @@ class _bvn_cox(_bvn_base):
         # Ensure positivity (negativity can happen with Taylor expansion....)
         if not monte_carlo:
             res = np.clip(res, 0, 1)
+        if return_orthant:
+            res = cdf_to_orthant(res, h, k)
         return res
 
     def cdf_cox1(self, h, k, rho) -> np.ndarray:

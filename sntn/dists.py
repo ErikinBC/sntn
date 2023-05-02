@@ -6,7 +6,7 @@ Contains main distributions (i.e. SNTN)
 import numpy as np
 # Internal modules
 from sntn._bvn import _bvn
-from sntn._sntn import _nts
+from sntn._nts import _nts
 from sntn._tnorm import _tnorm
 
 

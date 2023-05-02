@@ -8,7 +8,7 @@ from scipy.special import owens_t
 from scipy.integrate import fixed_quad
 from scipy.stats import multivariate_normal as mvn
 # Internal
-from sntn._cdf_bvn._utils import _bvn_base, mvn_pivot, Phi, orthant_to_cdf
+from sntn._cdf_bvn._utils import _bvn_base, mvn_pivot, Phi, orthant_to_cdf, cdf_to_orthant
 
 # Valid quadrature methods
 valid_quad_approach = ['owen', 'drezner1', 'drezner2']
@@ -23,7 +23,7 @@ class _bvn_scipy(_bvn_base):
         super().__init__(mu1, mu2, sigma21, sigma22, rho)
 
 
-    def cdf(self, x1:np.ndarray, x2:np.ndarray) -> np.ndarray:
+    def cdf(self, x1:np.ndarray, x2:np.ndarray, return_orthant:bool=False) -> np.ndarray:
         # Converts to normalized units
         h, k, rho = mvn_pivot(x1, x2, self.mu1, self.mu2, self.sigma21, self.sigma22, self.rho)
         h_shape = h.shape
@@ -53,9 +53,10 @@ class _bvn_scipy(_bvn_base):
             for ii in np.ndindex(h_shape[:n_dim_recycle]):
                 # Make a recursive call...
                 pval[*ii,...] = self.cdf(x1[*ii,...], x2[*ii,...])
+        # Return orthant if passed
+        if return_orthant:
+            pval = cdf_to_orthant(pval, h, k)
         return pval
-
-
 
 
 ##########################
@@ -75,7 +76,7 @@ class _bvn_quad(_bvn_base):
             self.fun_cdf = self._cdf_drezner2
 
 
-    def cdf(self, x1:np.ndarray, x2:np.ndarray, **kwargs) -> np.ndarray:
+    def cdf(self, x1:np.ndarray, x2:np.ndarray, return_orthant:bool=False, **kwargs) -> np.ndarray:
         """
         Calls the quad_approach to calculate the CDF
         
@@ -87,6 +88,8 @@ class _bvn_quad(_bvn_base):
         # Process x1/x2
         h, k, rho = mvn_pivot(x1, x2, self.mu1, self.mu2, self.sigma21, self.sigma22, self.rho)
         res = self.fun_cdf(h, k, rho, **kwargs)
+        if return_orthant:
+            res = cdf_to_orthant(res, h, k)
         return res
 
 
