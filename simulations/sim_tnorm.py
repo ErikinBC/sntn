@@ -127,7 +127,7 @@ val_pval_wide = val_pval_wide.assign(apval_err=lambda x:  np.abs(x['pval_ci']-(n
 val_pval_aerr = val_pval_wide.groupby(['n','idx','approach','method'])['apval_err'].sum().reset_index()
 res_runtime = res_runtime.merge(val_pval_aerr)
 # Save for convenience
-path_runtime = os.path.join(dir_simulations,'res_runtime.csv')
+path_runtime = os.path.join(dir_simulations,'tnorm_runtime.csv')
 res_runtime.to_csv(path_runtime, index=False)
 if 'res_runtime' not in dir():
     res_runtime = pd.read_csv(path_runtime)
