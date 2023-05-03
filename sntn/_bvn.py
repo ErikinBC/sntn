@@ -113,6 +113,7 @@ class _bvn():
         """
         x1, x2 = process_x_x1_x2(x, x1, x2)
         pval = self.cdf_method.cdf(x1, x2, **kwargs)
+        # pval = np.clip(pval, 0.0, 1.0)
         return pval
     
 

@@ -100,16 +100,28 @@ class _bvn_quad(_bvn_base):
         delta_hk = np.where(h*k > 0, 0, 1)
         delta_hk[(h > 0) & (k == 0)] = 0
         delta_hk[(h == 0) & (k > 0)] = 0
-        # delta_hk = np.where(h*k>=0, 0, np.where(h + k >= 0, 0, 1))
         # Calculate constants for Owen's T
         den_rho = np.sqrt(1 - rho**2)
-        q1 = (k / h - rho) / den_rho
-        q2 = (h / k - rho) / den_rho
+        # h can be zero, so we will want to avoid a divide by zero error
+        idx_h = ~(h == 0)
+        if idx_h.all():
+            q1 = (k / h - rho) / den_rho
+        else:
+            q1 = np.zeros(h.shape)
+            q1[idx_h] = (k[idx_h] / h[idx_h] - rho[idx_h]) / den_rho[idx_h]
+            q1[~idx_h] = np.sign(k[~idx_h]) * np.inf
+        # Repeat for k
+        idx_k = ~(k == 0)
+        if idx_k.all():
+            q2 = (h / k - rho) / den_rho
+        else:
+            q2 = np.zeros(h.shape)
+            q2[idx_k] = (h[idx_k] / k[idx_k] - rho[idx_k]) / den_rho[idx_k]
+            q2[~idx_k] = np.sign(h[~idx_k]) * np.inf
         # The "owens_t" function is fully vectorized and performs the integral under the hood
         t1 = owens_t(h, q1)
         t2 = owens_t(k, q2)
         cdf = 0.5 * (Phi(h) + Phi(k) - delta_hk) - t1 - t2 
-        # breakpoint()
         return cdf
 
     @staticmethod

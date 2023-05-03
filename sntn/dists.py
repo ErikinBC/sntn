@@ -18,8 +18,8 @@ class tnorm(_tnorm):
 
 """Normal & Truncated Sum (NTS) inherits the _nts class"""
 class nts(_nts):
-    def __init__(self,  mu1:float or np.ndarray, tau21:float or np.ndarray, mu2:float or np.ndarray, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1) -> None:
-        super().__init__(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    def __init__(self,  mu1:float or np.ndarray, tau21:float or np.ndarray, mu2:float or np.ndarray, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, **kwargs) -> None:
+        super().__init__(mu1, tau21, mu2, tau22, a, b, c1, c2, **kwargs)
 
 """Bivariate normal (BVN) inherits the _bvn class"""
 class bvn(_bvn):

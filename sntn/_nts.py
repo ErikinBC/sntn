@@ -98,13 +98,15 @@ class _nts():
         self.alpha = (a - self.theta2) / self.sigma2
         self.beta = (b - self.theta2) / self.sigma2
         # Calculate Z, use 
-        self.Z = np.exp(_log_gauss_approx(self.beta, self.alpha))
-        # self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
+        self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
+        # If we get tail values, true the approx
+        idx_tail = (self.Z == 0) | (self.Z == 1)
+        self.Z[idx_tail] = np.exp(_log_gauss_approx(self.beta[idx_tail], self.alpha[idx_tail]))
         # Initialize normal and trunctated normal
         self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau21))
         self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
         # Create the bivariate normal distribution
-        self.bvn = _bvn(0, 1, 0, 1, self.rho)
+        self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs)
 
 
     def mean(self) -> np.ndarray:
@@ -122,8 +124,12 @@ class _nts():
         # Calculate the orthant probabilities
         orthant1 = self.bvn.cdf(x1=m1, x2=alpha, return_orthant=True)
         orthant2 = self.bvn.cdf(x1=m1, x2=beta, return_orthant=True)
-        # Put together for CDF
+        # Get CDF
         pval = 1 - (orthant1 - orthant2) / self.Z
+        # When orthant1 and orthant2 are zero or less, then the CDF should be zero as well
+        idx_tail_neg = (orthant1 <= 0) & (orthant2 <= 0)
+        pval[idx_tail_neg] = 0
+        pval = np.clip(pval, 0.0, 1.0)  # For very small numbers can lead to small negative numbers
         # Return to original shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
