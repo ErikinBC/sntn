@@ -59,7 +59,7 @@ for jj, shape in enumerate(params_shape):
     holder_approach = []
     for approach in valid_cdf_approach:
         print(f'- Running for approach {approach} -')
-        dist = bvn(mu1, sigma21, mu2, sigma22, rho, approach)
+        dist = bvn(mu1, sigma21, mu2, sigma22, rho, cdf_approach=approach)
         stime = time()
         pval = dist.cdf(x1=x1, x2=x2)
         dtime = time() - stime

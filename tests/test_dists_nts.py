@@ -40,8 +40,8 @@ def test_nts_cdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
     mu1, tau21 = 100, 6**2
     mu2, tau22 = 50, 3**2
     a, b = 44, np.inf
-    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
     w = 138
+    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
     cdf_1964 = 0.03276
     assert np.round(dist_1964.cdf(w),5) == cdf_1964, F'Expected CDF to be: {cdf_1964}' 
     

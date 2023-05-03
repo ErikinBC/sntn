@@ -96,8 +96,11 @@ class _bvn_quad(_bvn_base):
     @staticmethod
     def _cdf_owen(h:np.ndarray, k:np.ndarray, rho:np.ndarray) -> np.ndarray:
         """Owen's (1956) method, where the 'intergral' is the owens_t function"""
-        # Calculate delta_hk (either zero or one), formally: np.where(h*k>=0, 0, np.where(h + k >= 0, 0, 1))
-        delta_hk = np.where(h*k>=0, 0, 1)  
+        # Calculate delta_hk (either zero or one), formally: 
+        delta_hk = np.where(h*k > 0, 0, 1)
+        delta_hk[(h > 0) & (k == 0)] = 0
+        delta_hk[(h == 0) & (k > 0)] = 0
+        # delta_hk = np.where(h*k>=0, 0, np.where(h + k >= 0, 0, 1))
         # Calculate constants for Owen's T
         den_rho = np.sqrt(1 - rho**2)
         q1 = (k / h - rho) / den_rho
@@ -106,6 +109,7 @@ class _bvn_quad(_bvn_base):
         t1 = owens_t(h, q1)
         t2 = owens_t(k, q2)
         cdf = 0.5 * (Phi(h) + Phi(k) - delta_hk) - t1 - t2 
+        # breakpoint()
         return cdf
 
     @staticmethod
