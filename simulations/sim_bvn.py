@@ -99,7 +99,7 @@ dat_err = dat_bvn.groupby(cn_gg)['log_err'].sum().groupby('approach').cumsum().r
 dat_tradeoff = rate_dtime.drop(columns='n_params').merge(dat_err.groupby('approach').tail(1).drop(columns='n_params'),'left','approach')
 gg_bvn_tradeoff = (pn.ggplot(dat_tradeoff, pn.aes(x='rate', y='log_err', color='approach')) + 
     pn.theme_bw() + pn.scale_x_log10() + 
-    pn.ggtitle('BVN tade-off by approach') +
+    pn.ggtitle('BVN trade-off by approach') +
     pn.scale_color_discrete(name='BVN integration approach') + 
     pn.labs(x='# of calculations per 1K params', y='-log10(error)') + 
     pn.geom_point(size=2))

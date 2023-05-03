@@ -7,6 +7,7 @@ import numpy as np
 from scipy.linalg import cholesky
 # Internal
 from sntn._cdf_bvn._utils import cdf_to_orthant
+from sntn.utilities.utils import process_x_x1_x2
 from sntn._cdf_bvn._approx import _bvn_cox, valid_cox_approach
 from sntn._cdf_bvn._brute import _bvn_scipy, valid_quad_approach, _bvn_quad
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
@@ -93,7 +94,7 @@ class _bvn():
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
 
 
-    def cdf(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> np.ndarray:
+    def cdf(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None, **kwargs) -> np.ndarray:
         """
         Calculates the CDF for an array with two dimensions (i.e. bivariate normal)
 
@@ -110,24 +111,9 @@ class _bvn():
         -------
         An (n1,..,nj,d1,..,dk) array of CDF values
         """
-        if x is None:
-            assert x1 is not None and x2 is not None, 'if x is not specified, then x1/x2 need to be'
-            x1, x2 = np.broadcast_arrays(x1, x2)
-        else:
-            x = np.asarray(x)
-            assert x.shape[-1] == 2, 'if x is given (rather than x1/x2), last dimension needs to be of size 2'
-            # Take out x1/x2
-            x1, x2 = np.take(x, 0, -1), np.take(x, 1, -1)
-        pval = self.cdf_method.cdf(x1, x2)
+        x1, x2 = process_x_x1_x2(x, x1, x2)
+        pval = self.cdf_method.cdf(x1, x2, **kwargs)
         return pval
-
-
-    def orthant(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> np.ndarray:
-        """
-        Wrapper on the cdf method that returns the orthant probabilities
-        """
-        cdf_to_orthant(cdf, h, k)
-        return self.cdf(x, x1, x2)
     
 
     def rvs(self, ndraw:int, seed=None) -> np.ndarray:

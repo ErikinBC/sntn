@@ -6,9 +6,43 @@ Utility functions
 import os
 import numpy as np
 import pandas as pd
+from inspect import getfullargspec
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+
+def process_x_x1_x2(x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> tuple:
+    """
+    For the bivariate normal, extract the two coordinates
+
+    Args:
+    ----
+    x (np.ndarray):
+        A (n1,..,nj,d1,..,dk,2) array
+    x1 (np.ndarray):
+        If x is not specified...
+    x2 (np.ndarray):
+        Second coordinate if x not specified
+
+    Returns
+    -------
+    An tuple of (d1,..,dk) arrays
+    """
+    if x is None:
+        assert x1 is not None and x2 is not None, 'if x is not specified, then x1/x2 need to be'
+        x1, x2 = np.broadcast_arrays(x1, x2)
+    else:
+        x = np.asarray(x)
+        assert x.shape[-1] == 2, 'if x is given (rather than x1/x2), last dimension needs to be of size 2'
+        # Take out x1/x2
+        x1, x2 = np.take(x, 0, -1), np.take(x, 1, -1)
+    return x1, x2
+
+
+def pass_kwargs_to_classes(cls, *args, **kwargs):
+    arg_names = set(getfullargspec(cls.__init__).args[1:])
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
+    return cls(*args, **filtered_kwargs)
 
 
 def array_to_dataframe(arr:np.ndarray) -> pd.DataFrame:

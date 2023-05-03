@@ -32,12 +32,26 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 def test_nts_cdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
-    """Checks that the CDF aligns with the RVS""" 
+    """Checks that:
+    i) CDF aligns with classic 1964 paper
+    ii) Empirical rvs aligns with cdf
+    """ 
+    # (i) Sanity check on 1964 query
+    mu1, tau21 = 100, 6**2
+    mu2, tau22 = 50, 3**2
+    a, b = 44, np.inf
+    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
+    w = 138
+    cdf_1964 = 0.03276
+    assert np.round(dist_1964.cdf(w),5) == cdf_1964, F'Expected CDF to be: {cdf_1964}' 
+    
+    # (ii) Check that random parameters align with rvs
     shape = params_shape[2]
     # Draw different distributions
     params_shape
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
     dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+
 
 
 

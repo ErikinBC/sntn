@@ -6,8 +6,10 @@ Fully specified SNTN distribution
 import numpy as np
 from scipy.stats import truncnorm, norm
 # Internal
+from sntn._bvn import _bvn
+from sntn.utilities.grad import _log_gauss_approx
 from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
-from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
+from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k, pass_kwargs_to_classes
 
 
 @staticmethod
@@ -25,7 +27,7 @@ def _mus_are_equal(mu1, mu2) -> tuple:
 
 
 class _nts():
-    def __init__(self, mu1:float or np.ndarray or None, tau21:float or np.ndarray, mu2:float or np.ndarray or None, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, fix_mu:bool=False) -> None:
+    def __init__(self, mu1:float or np.ndarray or None, tau21:float or np.ndarray, mu2:float or np.ndarray or None, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, fix_mu:bool=False, **kwargs) -> None:
         """
         The "normal and truncated sum": workhorse class for the sum of a normal and truncated normal. Carries out standard inferece using scipy.dist syntax with added conf_int method
 
@@ -51,6 +53,7 @@ class _nts():
         c1:              A weighting constant for Z1 (must be >0, default=1)
         c2:              A weighting constant for Z2 (must be >0, default=1)
         fix_mu:          Whether mu1=mu2=mu, will need mu1 OR mu2 to be None, but not both (default=False)
+        kwargs:          Other keywords to be passed onto the bvn() construction
 
         Attributes
         ----------
@@ -94,10 +97,14 @@ class _nts():
         # Calculate the truncated normal terms
         self.alpha = (a - self.theta2) / self.sigma2
         self.beta = (b - self.theta2) / self.sigma2
-        self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
-        # Use the scipy classes to create separate distributions
+        # Calculate Z, use 
+        self.Z = np.exp(_log_gauss_approx(self.beta, self.alpha))
+        # self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
+        # Initialize normal and trunctated normal
         self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau21))
         self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
+        # Create the bivariate normal distribution
+        self.bvn = _bvn(0, 1, 0, 1, self.rho)
 
 
     def mean(self) -> np.ndarray:
@@ -107,10 +114,19 @@ class _nts():
         return mu
 
 
-    def cdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
+    def cdf(self, w:np.ndarray, **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
-        # broadcast_to_k
-        return None
+        # Broadcast x to the same dimension of the parameters
+        w, alpha, beta = np.broadcast_arrays(w, self.alpha, self.beta)
+        m1 = (w - self.theta1) / self.sigma1
+        # Calculate the orthant probabilities
+        orthant1 = self.bvn.cdf(x1=m1, x2=alpha, return_orthant=True)
+        orthant2 = self.bvn.cdf(x1=m1, x2=beta, return_orthant=True)
+        # Put together for CDF
+        pval = 1 - (orthant1 - orthant2) / self.Z
+        # Return to original shape
+        pval = reverse_broadcast_from_k(pval, self.param_shape)
+        return pval
         
     
     def ppf(self, p:np.ndarray, **kwargs) -> np.ndarray:
