@@ -360,8 +360,9 @@ def broastcast_max_shape(*args, **kwargs) -> Tuple:
             vprint(f'# --- Case 4: different dimensions --- #', verbose)
             assert n_max_shape > n_sarg, f'If we are in case 4, expected {n_max_shape} > {n_sarg}'
             # Else, we assume that we only need to append a one (if this fails it will be caught at the assertion error below)
-            pos_expand_axis = list(n_sarg + np.arange(n_max_shape - n_sarg))
-            args_i = np.expand_dims(arg, axis=pos_expand_axis)
+            args_i = np.broadcast_to(arg, np.broadcast_shapes(max_shape, sarg))
+            # pos_expand_axis = list(n_sarg + np.arange(n_max_shape - n_sarg))
+            # args_i = np.expand_dims(arg, axis=pos_expand_axis)
         # Check and then update
         assert args_i.shape == max_shape, f'Woops expected {args_i.shape} == {max_shape}'
         args[i] = args_i

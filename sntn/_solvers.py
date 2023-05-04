@@ -202,12 +202,12 @@ class conf_inf_solver():
             return x0
 
 
-    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge') -> np.ndarray:
+    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge') -> np.ndarray:
         """
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
-        approach:           Which scipy method to use (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}), default='root_scalar'
+        approach:           Which scipy method to use (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}), default='root'
         di_scipy:           Dictionary to be passed into scipy optimization (e.g. root(**di_scipy), di_scipy={'method':'secant'}), default=None
         di_dist_args:       A dictionary that contains the named paramaters which are fixed for CDF calculation (e.g. {'scale':2}), default=None
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI? (default=-100000)
@@ -247,7 +247,7 @@ class conf_inf_solver():
             fun_x1 = base_fun_x1                
         
         # Broadcast x to match underlying parameters (or vice versa)
-        x = np.squeeze(x)  # Squeeze x if we can in cause parameters are (n,)        
+        x = np.squeeze(x)  # Squeeze x if we can in case parameters are (n,)
         tmp = broastcast_max_shape(x, *di_dist_args.values())
         x, di_dist_args = tmp[0], dict(zip(di_dist_args.keys(),tmp[1:]))
         

@@ -15,11 +15,22 @@ from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k
 @staticmethod
 def _mus_are_equal(mu1, mu2) -> tuple:
     """When we desire to fix mu1/mu2 to the same value, will return the value of both when one of them is None"""
-    if mu1 is None:
-        assert mu2 is not None, 'if mu1 is None, mu2 cannot be'
+    # Determine which are None (if any)
+    mu1_is_None, mu2_is_None = False, False
+    if isinstance(mu1, np.ndarray):
+        mu1_is_None = None in mu1
+    else:
+        mu1_is_None = mu1 is None
+    if isinstance(mu2, np.ndarray):
+        mu2_is_None = None in mu2
+    else:
+        mu2_is_None = mu2 is None
+    # Return the appropriate value
+    if mu1_is_None:
+        assert not mu2_is_None, 'if mu1 is None, mu2 cannot be'
         return mu2, mu2
-    elif mu2 is None:
-        assert mu1 is not None, 'if mu1 is None, mu2 cannot be'
+    elif mu2_is_None:
+        assert not mu1_is_None, 'if mu2 is None, mu1 cannot be'
         return mu1, mu1
     else:
         assert np.all(mu1 == mu2), 'if mu is fixed, mu1 != mu2'
@@ -73,8 +84,12 @@ class _nts():
         ppf:            Quantile function
         """
         # Input checks and broadcasting
+        if isinstance(fix_mu, np.ndarray):
+            fix_mu = bool(fix_mu.flat[0])  # Assume it was broadcasted
+        assert isinstance(fix_mu, bool), 'fix_mu needs to be a boolean'
         if fix_mu:
             mu1, mu2 = _mus_are_equal(mu1, mu2)
+        self.fix_mu = fix_mu
         mu1, mu2, tau21, tau22, a, b, c1, c2 = broastcast_max_shape(mu1, mu2, tau21, tau22, a, b, c1, c2)
         assert np.all(tau21 > 0), 'tau21 needs to be strictly greater than zero'
         assert np.all(tau22 > 0), 'tau22 needs to be strictly greater than zero'
@@ -85,10 +100,15 @@ class _nts():
         self.param_shape = mu1.shape
         # Flatten parameters
         mu1, mu2, tau21, tau22, a, b, c1, c2 = [x.flatten() for x in [mu1, mu2, tau21, tau22, a, b, c1, c2]]
+        # Store the original attributes
+        self.mu1, self.c1, self.tau21 = mu1, c1, tau21
+        self.mu2, self.c2, self.tau22 = mu2, c2, tau22
+        self.a, self.b = a, b
         # Create attributes
         self.k = len(mu1)
-        self.theta1 = c1*mu1 + c2*mu2
-        self.theta2 = c2*mu2
+        c_mu1, c_mu2 = c1*mu1, c2*mu2
+        self.theta1 = c_mu1 + c_mu2
+        self.theta2 = c_mu2
         sigma21 = c1**2 * tau21 + c2**2 * tau22
         sigma22 = c2**2 * tau22
         self.sigma1 = np.sqrt(sigma21)
@@ -104,7 +124,7 @@ class _nts():
         if idx_tail.any():
             self.Z[idx_tail] = np.exp(_log_gauss_approx(self.beta[idx_tail], self.alpha[idx_tail]))
         # Initialize normal and trunctated normal
-        self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau21))
+        self.dist_Z1 = norm(loc=c_mu1, scale=c1*np.sqrt(tau21))
         self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
         # Create the bivariate normal distribution
         self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs)
@@ -134,13 +154,7 @@ class _nts():
         # Return to original shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
-        
-    
-    def ppf(self, p:np.ndarray, **kwargs) -> np.ndarray:
-        """Returns the quantile function"""
-        # broadcast_to_k
-        return None
-    
+            
 
     def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
         """Calculates the marginal density of the NTS distribution at some point x"""
@@ -166,10 +180,16 @@ class _nts():
         return w
 
 
-    @staticmethod
-    def _dmu_dcdf(mu:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
-        """Return the derivative of...."""
-        return None
+    # @staticmethod
+    # def _dmu_dcdf(mu:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
+    #     """Return the derivative of...."""
+    #     return None
+
+
+    # def ppf(self, p:np.ndarray, **kwargs) -> np.ndarray:
+    #     """Returns the quantile function"""
+    #     # broadcast_to_k
+    #     return None
 
 
     def _find_dist_kwargs_CI(**kwargs) -> tuple:
@@ -189,7 +209,7 @@ class _nts():
         if 'c2' not in kwargs:
             c2 = 1
         if 'fix_mu' not in kwargs:
-            fix_mu = False
+            fix_mu = self.fix_mu
         # Remove only constructor arguments from kwargs
         kwargs = {k:v for k,v in kwargs.items() if k not in valid_kwargs}
         # We should only see mu1 or mu2
@@ -221,7 +241,8 @@ class _nts():
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
         # Process the key-word arguments and extract NTS parameters
-        mu, tau21, tau22, c1, c2, fix_mu, kwargs = self._find_dist_kwargs_CI(**kwargs)
+        
+        # mu, tau21, tau22, c1, c2, fix_mu, kwargs = self._find_dist_kwargs_CI(mu, tau21, tau22, c1, c2, fix_mu, **kwargs)
         # Storage for the named parameters what will go into class initialization (excluded param_fixed)
         di_dist_args = {}
         # param_fixed must be either mu1, mu2, or mu (mu1==mu2)
@@ -229,18 +250,19 @@ class _nts():
         assert param_fixed in valid_fixed, f'param_fixed must be one of: {param_fixed}'
         if param_fixed == 'mu':
             param_fixed = 'mu1'  # Use mu1 for convenience
-            assert fix_mu, 'if param_fixed="mu" then fix_mu==True'
+            assert self.fix_mu==True, 'if param_fixed="mu" then fix_mu==True'
             di_dist_args['mu2'] = None  # One parameter must be None with fix_mu=True, and since mu1 will be assigned every time, this is necessary
         elif param_fixed == 'mu1':
             param_fixed = 'mu1'
-            di_dist_args['mu2'] = mu
+            di_dist_args['mu2'] = self.mu2
         else:
             param_fixed = 'mu2'
-            di_dist_args['mu1'] = mu
+            di_dist_args['mu1'] = self.mu1
         # Set up solver
-        solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, dF_dtheta=self._dmu_dcdf, alpha=alpha)
+        
+        solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, alpha=alpha)
         # Assign the remainder of the parameter
-        di_dist_args = {**di_dist_args, **{'tau21':tau21, 'tau22':tau22, 'c1':c1, 'c2':c2, 'fix_mu':fix_mu}}
+        di_dist_args = {**di_dist_args, **{'tau21':self.tau21, 'tau22':self.tau22, 'a':self.a, 'b':self.b, 'c1':self.c1, 'c2':self.c2, 'fix_mu':self.fix_mu}}
         # Run CI solver
         res = solver._conf_int(x=x, di_dist_args=di_dist_args, **kwargs)
         # Return matrix of values
