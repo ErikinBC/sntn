@@ -101,7 +101,8 @@ class _nts():
         self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
         # If we get tail values, true the approx
         idx_tail = (self.Z == 0) | (self.Z == 1)
-        self.Z[idx_tail] = np.exp(_log_gauss_approx(self.beta[idx_tail], self.alpha[idx_tail]))
+        if idx_tail.any():
+            self.Z[idx_tail] = np.exp(_log_gauss_approx(self.beta[idx_tail], self.alpha[idx_tail]))
         # Initialize normal and trunctated normal
         self.dist_Z1 = norm(loc=c1*mu1, scale=c1*np.sqrt(tau21))
         self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
@@ -119,11 +120,11 @@ class _nts():
     def cdf(self, w:np.ndarray, **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
         # Broadcast x to the same dimension of the parameters
-        w, alpha, beta = np.broadcast_arrays(w, self.alpha, self.beta)
+        w = broadcast_to_k(np.atleast_1d(w), self.param_shape)
         m1 = (w - self.theta1) / self.sigma1
         # Calculate the orthant probabilities
-        orthant1 = self.bvn.cdf(x1=m1, x2=alpha, return_orthant=True)
-        orthant2 = self.bvn.cdf(x1=m1, x2=beta, return_orthant=True)
+        orthant1 = self.bvn.cdf(x1=m1, x2=self.alpha, return_orthant=True)
+        orthant2 = self.bvn.cdf(x1=m1, x2=self.beta, return_orthant=True)
         # Get CDF
         pval = 1 - (orthant1 - orthant2) / self.Z
         # When orthant1 and orthant2 are zero or less, then the CDF should be zero as well

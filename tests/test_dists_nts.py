@@ -31,7 +31,7 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_shape)
-def test_nts_cdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
+def test_nts_cdf(shape:tuple, ndraw:int=10000, tol_cdf:float=0.01) -> None:
     """Checks that:
     i) CDF aligns with classic 1964 paper
     ii) Empirical rvs aligns with cdf
@@ -42,18 +42,20 @@ def test_nts_cdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
     a, b = 44, np.inf
     w = 138
     dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
-    cdf_1964 = 0.03276
-    assert np.round(dist_1964.cdf(w),5) == cdf_1964, F'Expected CDF to be: {cdf_1964}' 
+    expected_1964 = 0.03276
+    cdf_1964 = dist_1964.cdf(w)[0]
+    assert np.round(cdf_1964,5) == expected_1964, F'Expected CDF to be: {expected_1964} not {cdf_1964}' 
     
     # (ii) Check that random parameters align with rvs
-    shape = params_shape[2]
-    # Draw different distributions
-    params_shape
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
     dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    x = dist.rvs(1)[0,...]
+    cdf_theory = dist.cdf(x)
+    cdf_rvs = np.mean(dist.rvs(ndraw, seed) <= x, 0)
+    err_max = np.abs(cdf_theory - cdf_rvs).max()
+    assert err_max < tol_cdf, f'Maximum error {err_max} was greater than {tol_cdf}'
 
-
-
+    
 
 @pytest.mark.parametrize("shape", params_shape)
 def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:

@@ -17,14 +17,11 @@ mu2, tau22 = 50, 3**2
 b = np.inf
 w = 138
 a_seq = np.arange(40, 66)
-# a_seq = np.concatenate((np.array([-np.inf]),np.arange(44, 66)))
+# Compare conditional to unconditional
+dist_uncond = norm(loc=mu1+mu2, scale=np.sqrt(tau21 + tau22))
+pval_uncond = dist_uncond.cdf(w)
+mean_uncond = dist_uncond.mean()
+dist_cond = nts(mu1, tau21, mu2, tau22, a_seq, b)
+pval_cond = dist_cond.cdf(w)
+mean_cond = dist_cond.mean()
 
-norm(loc=mu1+mu2, scale=np.sqrt(tau21 + tau22)).cdf(w)
-
-# Get the range of means
-mu_of_a = np.array([nts(mu1, tau21, mu2, tau22, a, b).mean()[0] for a in a_seq])
-for a in a_seq:
-    dist_a = nts(mu1, tau21, mu2, tau22, a, b, cdf_approach='owen')
-    pval = dist_a.cdf(w)[0]
-    print(f'pval={pval:.5f}, a={a:0.0f}')
-    
