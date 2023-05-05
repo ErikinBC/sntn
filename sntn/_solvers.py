@@ -29,6 +29,7 @@ root_scalar         bisect          True
 
 # External 
 import numpy as np
+from time import time
 from copy import deepcopy
 from inspect import getfullargspec
 from scipy.stats import norm
@@ -87,7 +88,7 @@ def _process_args_kwargs_flatten(args:tuple, kwargs:tuple) -> tuple:
 
 
 class conf_inf_solver():
-    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False) -> None:
+    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False, verbose_iter:int=50) -> None:
         """
         The conf_inf_solver class can generate confidence intervals for a single parameter of a distribution. Specifically for a target parameter "theta":
 
@@ -119,12 +120,14 @@ class conf_inf_solver():
         assert hasattr(dist, 'cdf'), 'dist must have a cdf method'
         assert isinstance(param_theta, str), 'param_theta needs to be a string'
         assert isinstance(alpha, float) and (alpha > 0) and (alpha < 1), 'alpha must be a float, and between 0 < alpha < 1'
-        assert isinstance(verbose, bool)
+        assert isinstance(verbose, bool), 'verbose must be a bool'
+        assert isinstance(verbose_iter, int) and (verbose_iter > 0), 'verbose_iter must be an int > 0'
         # Assign
         self.dist = dist
         self.alpha = alpha
         self.param_theta = param_theta
         self.verbose = verbose
+        self.verbose_iter = verbose_iter
         self.dF_dtheta = None
         if dF_dtheta is not None:
             assert callable(dF_dtheta), 'dF_dtheta must be callable'
@@ -300,10 +303,10 @@ class conf_inf_solver():
             
             # Loop over all element points
             i = 0
+            stime = time()
             n_iter = int(np.prod(x.shape))
             for kk in np.ndindex(x.shape): 
                 # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
-                vprint(f'Iteration {i+1} of {n_iter}', self.verbose and (i+1)%50==0)
                 x_kk = x[kk]
                 # Update initializer
                 x0_kk, x1_kk = self._process_fun_x0_x1(x_kk, fun_x0, fun_x1)
@@ -319,6 +322,13 @@ class conf_inf_solver():
                 # Save
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk
+                if self.verbose:
+                    is_checkpoint = (i+1) % self.verbose_iter==0
+                    if is_checkpoint:
+                        dtime, nleft = time() - stime, n_iter - (i+1)
+                        rate = (i+1) / dtime
+                        seta = nleft / rate
+                        print(f'Iteration {i+1} of {n_iter} (ETA={seta/60:0.1f} minutes)')
                 # Update step
                 i += 1  
 

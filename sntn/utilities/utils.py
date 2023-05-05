@@ -6,10 +6,34 @@ Utility functions
 import os
 import numpy as np
 import pandas as pd
-from inspect import getfullargspec
+from inspect import getfullargspec, signature
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+
+
+def get_valid_kwargs_cls(cls, **kwargs):
+    # Get the class constructor's parameter names
+    sig = signature(cls.__init__)
+    valid_kwargs = set(sig.parameters.keys()) - {'self'}    
+    # Filter the input kwargs to only include valid kwargs
+    return {k: v for k, v in kwargs.items() if k in valid_kwargs}
+
+
+def get_valid_kwargs_method(obj, method_name, **kwargs):
+    method = getattr(obj, method_name)
+    arg_names = getfullargspec(method).args[1:]
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
+    return filtered_kwargs
+
+
+def pass_kwargs_to_classes(cls, *args, **kwargs):
+    """Try passing keywords to class, and the class will only use those kwargs that match named arguments"""
+    arg_names = set(getfullargspec(cls.__init__).args[1:])
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
+    return cls(*args, **filtered_kwargs)
+
+
 
 def process_x_x1_x2(x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> tuple:
     """
@@ -37,12 +61,6 @@ def process_x_x1_x2(x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np
         # Take out x1/x2
         x1, x2 = np.take(x, 0, -1), np.take(x, 1, -1)
     return x1, x2
-
-
-def pass_kwargs_to_classes(cls, *args, **kwargs):
-    arg_names = set(getfullargspec(cls.__init__).args[1:])
-    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
-    return cls(*args, **filtered_kwargs)
 
 
 def array_to_dataframe(arr:np.ndarray) -> pd.DataFrame:
@@ -495,7 +513,7 @@ def broadcast_to_k(x:np.ndarray, param_shape:tuple) -> np.ndarray:
         return x.reshape(x.shape[:-nd_param] + (k,))
 
 
-def reverse_broadcast_from_k(x: np.ndarray, param_shape: tuple) -> np.ndarray:
+def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tuple or None=None) -> np.ndarray:
     """Reverse the broadcasting performed by the broadcast_to_k function.
 
     Parameters
@@ -504,6 +522,8 @@ def reverse_broadcast_from_k(x: np.ndarray, param_shape: tuple) -> np.ndarray:
         The array to reverse the broadcasting for.
     param_shape : tuple
         The original param_shape passed to broadcast_to_k.
+    suffix_shape : tuple or None
+        An extra shape value found at the end of x (default=None)
 
     Returns
     -------
@@ -513,8 +533,30 @@ def reverse_broadcast_from_k(x: np.ndarray, param_shape: tuple) -> np.ndarray:
     # Input checks
     assert isinstance(x, np.ndarray), 'x needs to be an array'
     assert isinstance(param_shape, tuple)
-    k = int(np.prod(param_shape))
-    assert x.shape[-1] == k, f"The last dimension of x should be k={k}"
-    # Reshape the array to the original shape
-    original_shape = x.shape[:-1] + param_shape
-    return x.reshape(original_shape)
+    if suffix_shape is None:
+        suffix_shape = ()
+    else:
+        assert isinstance(suffix_shape, tuple), 'if suffix_shape is not None, it needs to be a tuple'
+    n_dim_suffix = len(suffix_shape)
+    n_suffix = int(np.prod(suffix_shape))
+    k = int(np.prod(param_shape) * n_suffix)
+    n_param_shape = len(param_shape)
+    x_shape = x.shape
+    # How many of the last dimensions to check
+    n_last_dim = 1 + n_dim_suffix
+    if len(x_shape) == 1:
+        assert x_shape == param_shape, f'If x is a vector, expect it to match original shape {str(x_shape)}!={param_shape} (e.g. 8 == 8)'
+    elif len(param_shape) == 1:
+        try:
+            assert np.prod(x_shape[-n_last_dim:]) == k, 'When parameter is a scalar, expecting last dimensions to be equal to k (e.g. (4,3,10) == (10))'
+        except:
+            breakpoint()
+    else:
+        try:
+            assert np.prod(x.shape[-n_last_dim:]) == k, f"Dimensions {n_param_shape} onwards should be of size k={k}"
+        except:
+            breakpoint()
+        # Reshape the array to the original shape
+        original_shape = (x.shape[0],) + param_shape + suffix_shape
+        x = x.reshape(original_shape)
+    return x

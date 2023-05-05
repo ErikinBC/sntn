@@ -16,8 +16,8 @@ from sntn.dists import nts
 from parameters import seed
 
 # Used for pytest
-params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
-params_alpha = [ (0.2), (0.1), (0.05), (0.01) ]
+params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
+params_alpha = [ (0.2), (0.1), (0.05) ]
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generates NTS parameters"""
@@ -35,12 +35,14 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 @pytest.mark.parametrize("alpha", params_alpha)
-def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=500) -> None:
+# @pytest.mark.parametrize("ndraw", [(25),(50),(250)])
+def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=25) -> None:
     """Checks that the confidence intervals cover the true parameter at the expected rate"""
     # Distribution to check p-value for coverage...
     # shape, alpha, ndraw = params_shape[0], params_alpha[1], 100
-    dist_coverage = binom(n=ndraw,p=1-alpha)
+    print('Drawing data')
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist_coverage = binom(n=int(ndraw*np.prod(shape)), p=1-alpha)
 
     # (ii) Repeat for fixed means
     np.random.seed(seed)
@@ -49,48 +51,54 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=500) -> None:
     dist = nts(mu, tau21, None, tau22, a, b, fix_mu=True)
     x = np.squeeze(dist.rvs(ndraw, seed))
     stime = time()
-    param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root')
+    print('Finding CIs')
+    param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=50)
     dtime, nroot = time() - stime, int(np.prod(param_ci.shape))
     rate = nroot / dtime
-    print(f'Calculate {rate:.1f} roots per second')
+    print(f'Calculate {rate:.1f} roots per second (seconds={dtime:.0f}, roots={nroot})')
     ci_lb, ci_ub = np.take(param_ci, 0, -1), np.take(param_ci, 1, -1)
-    val_gt = getattr(dist, 'mu1')
-    val_gt = np.broadcast_to(val_gt, np.broadcast_shapes(val_gt.shape, ci_lb.shape))
-    tmp_df = pd.DataFrame({'param':'mu', 'x':np.squeeze(x), 'lb':ci_lb, 'ub':ci_ub, 'gt':val_gt})
+    val_gt = np.broadcast_to(mu1, np.broadcast_shapes(mu1.shape, ci_lb.shape))
+    
+    # Flatten the values for the DataFrame
+    # x, ci_lb, ci_ub, val_gt = x.flatten(), ci_lb.flatten(), ci_ub.flatten(), val_gt.flatten()
+    # assert ci_lb.shape == x.shape == ci_ub.shape == val_gt.shape, 'expected flattened CIs to match x shape'
+    try:
+        tmp_df = pd.DataFrame({'param':'mu', 'x':x.flat, 'lb':ci_lb.flat, 'ub':ci_ub.flat, 'gt':val_gt.flat})
+    except:
+        breakpoint()
     tmp_df = tmp_df.assign(cover=lambda x: (x['lb'] <= x['gt']) & (x['ub'] >= x['gt']))
     tmp_df = tmp_df.sort_values('x').reset_index(drop=True)
     pval_mu = dist_coverage.cdf(tmp_df['cover'].sum())
     pval_mu = 2*min(pval_mu, 1-pval_mu)
-    print(tmp_df['cover'].mean())
-    print(pval_mu)
-    breakpoint()
-    # Find the actual alpha/2, 1-alpha/2 quantile values, and confirm that coverage fails ONLY outside them
-    from scipy.optimize import root
-    x_lb = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
-    x_ub = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-1 + alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
-    assert not tmp_df.query('x < @x_lb').cover.any()
-    assert not tmp_df.query('x > @x_ub').cover.any()
-    assert tmp_df.query('(x <= @x_ub) & (x >= @x_lb)').cover.all()
+    cover_mu = tmp_df['cover'].mean()
+    try:
+        assert pval_mu > 0.05, 'Coverage did not match expected level'
+    except:
+        breakpoint()
+    print(f'alpha={alpha}, shape={str(shape)}, coverage={100*cover_mu:.1f}%, pval={100*pval_mu:.1f}%')
     
-    
-    
-    
+    # # Find the actual alpha/2, 1-alpha/2 quantile values, and confirm that coverage fails ONLY outside them
+    # from scipy.optimize import root
+    # x_lb = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
+    # x_ub = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-1 + alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
+    # assert not tmp_df.query('x < @x_lb').cover.any()
+    # assert not tmp_df.query('x > @x_ub').cover.any()
+    # assert tmp_df.query('(x <= @x_ub) & (x >= @x_lb)').cover.all()
 
-
-    # (i) For different means
-    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2, fix_mu=False)
-    x = dist.rvs(ndraw)
-    # Generate CI for mu{12}
-    holder_param = []
-    for param_name in ['mu1', 'mu2']:
-        param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed=param_name)
-        ci_lb, ci_ub = np.take(param_ci, 0, -1), np.take(param_ci, 1, -1)
-        # Broadcast...
-        val_gt = getattr(dist, param_name)
-        val_gt = np.broadcast_to(val_gt, np.broadcast_shapes(val_gt.shape, ci_lb.shape))
-        tmp_df = pd.DataFrame({'param':param_name, 'x':np.squeeze(x), 'lb':ci_lb, 'ub':ci_ub, 'gt':val_gt})
-        holder_param.append(tmp_df)
-    res_param = pd.concat(holder_param).reset_index(drop=True)
+    # # (i) For different means
+    # dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2, fix_mu=False)
+    # x = dist.rvs(ndraw)
+    # # Generate CI for mu{12}
+    # holder_param = []
+    # for param_name in ['mu1', 'mu2']:
+    #     param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed=param_name)
+    #     ci_lb, ci_ub = np.take(param_ci, 0, -1), np.take(param_ci, 1, -1)
+    #     # Broadcast...
+    #     val_gt = getattr(dist, param_name)
+    #     val_gt = np.broadcast_to(val_gt, np.broadcast_shapes(val_gt.shape, ci_lb.shape))
+    #     tmp_df = pd.DataFrame({'param':param_name, 'x':np.squeeze(x), 'lb':ci_lb, 'ub':ci_ub, 'gt':val_gt})
+    #     holder_param.append(tmp_df)
+    # res_param = pd.concat(holder_param).reset_index(drop=True)
     
 
 

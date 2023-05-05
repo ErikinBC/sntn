@@ -4,12 +4,13 @@ Fully specified SNTN distribution
 
 # External
 import numpy as np
+from scipy.optimize import root
 from scipy.stats import truncnorm, norm
 # Internal
 from sntn._bvn import _bvn
 from sntn.utilities.grad import _log_gauss_approx
 from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
-from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k, pass_kwargs_to_classes
+from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k, pass_kwargs_to_classes, get_valid_kwargs_cls, get_valid_kwargs_method
 
 
 @staticmethod
@@ -176,7 +177,11 @@ class _nts():
         z1 = self.dist_Z1.rvs([ndraw,self.k], random_state=seed)
         z2 = self.dist_Z2.rvs([ndraw, self.k], random_state=seed)
         w = z1 + z2
-        w = reverse_broadcast_from_k(w, self.param_shape)
+        try:
+            w = reverse_broadcast_from_k(w, self.param_shape)
+        except:
+            breakpoint()
+            w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
 
@@ -186,10 +191,18 @@ class _nts():
     #     return None
 
 
-    # def ppf(self, p:np.ndarray, **kwargs) -> np.ndarray:
-    #     """Returns the quantile function"""
-    #     # broadcast_to_k
-    #     return None
+    def ppf(self, p:np.ndarray, alpha:float, **kwargs) -> np.ndarray:
+        """
+        Returns the quantile function
+        
+        p:              An array of 
+        """
+        # Make sure aligns with the parameters
+        p_flat = broadcast_to_k(p, self.param_shape)
+        lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)
+
+        x_lb = root(fun=-alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
+        return None
 
 
     def _find_dist_kwargs_CI(**kwargs) -> tuple:
@@ -240,9 +253,9 @@ class _nts():
         param_fixed:            Which parameter are we doing inference on ('mu'==fix mu1==mu2, 'mu1', 'mu2')? 
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
-        # Process the key-word arguments and extract NTS parameters
-        
-        # mu, tau21, tau22, c1, c2, fix_mu, kwargs = self._find_dist_kwargs_CI(mu, tau21, tau22, c1, c2, fix_mu, **kwargs)
+        # Make sure x is the right dimension
+        x = try2array(x)
+        x = broadcast_to_k(x, self.param_shape)
         # Storage for the named parameters what will go into class initialization (excluded param_fixed)
         di_dist_args = {}
         # param_fixed must be either mu1, mu2, or mu (mu1==mu2)
@@ -259,11 +272,26 @@ class _nts():
             param_fixed = 'mu2'
             di_dist_args['mu1'] = self.mu1
         # Set up solver
-        
-        solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, alpha=alpha)
+        solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, alpha=alpha, **get_valid_kwargs_cls(conf_inf_solver, **kwargs))
         # Assign the remainder of the parameter
         di_dist_args = {**di_dist_args, **{'tau21':self.tau21, 'tau22':self.tau22, 'a':self.a, 'b':self.b, 'c1':self.c1, 'c2':self.c2, 'fix_mu':self.fix_mu}}
         # Run CI solver
-        res = solver._conf_int(x=x, di_dist_args=di_dist_args, **kwargs)
+        verbose, verbose_iter = False, 50
+        if 'verbose' in kwargs:
+            verbose = kwargs['verbose']
+            assert isinstance(verbose, bool)
+        if 'verbose_iter' in kwargs:
+            verbose_iter = kwargs['verbose_iter']
+            assert isinstance(verbose_iter, int) and (verbose_iter > 0)
+        res = np.zeros(x.shape + (2,))
+        n_iter = x.shape[0]
+        for i in range(n_iter):
+            if verbose:
+                if (i+1) % verbose_iter == 0:
+                    print(f'Iteration {i+1} of {n_iter}')
+            res[i] = solver._conf_int(x=x[i], di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
+        # res = solver._conf_int(x=x, di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
+        # breakpoint()
+        res = reverse_broadcast_from_k(res, self.param_shape,(2,))
         # Return matrix of values
         return res
