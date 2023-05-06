@@ -11,6 +11,15 @@ from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 
+def try_except_breakpoint(cond:bool, stmt:str or None=None):
+    if stmt is None:
+        stmt = ''
+    try:
+        assert cond, stmt
+    except:
+        breakpoint()
+        cond
+
 
 def get_valid_kwargs_cls(cls, **kwargs):
     # Get the class constructor's parameter names
@@ -547,15 +556,9 @@ def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tupl
     if len(x_shape) == 1:
         assert x_shape == param_shape, f'If x is a vector, expect it to match original shape {str(x_shape)}!={param_shape} (e.g. 8 == 8)'
     elif len(param_shape) == 1:
-        try:
-            assert np.prod(x_shape[-n_last_dim:]) == k, 'When parameter is a scalar, expecting last dimensions to be equal to k (e.g. (4,3,10) == (10))'
-        except:
-            breakpoint()
+        assert np.prod(x_shape[-n_last_dim:]) == k, 'When parameter is a scalar, expecting last dimensions to be equal to k (e.g. (4,3,10) == (10))'
     else:
-        try:
-            assert np.prod(x.shape[-n_last_dim:]) == k, f"Dimensions {n_param_shape} onwards should be of size k={k}"
-        except:
-            breakpoint()
+        assert np.prod(x.shape[-n_last_dim:]) == k, f"Dimensions {n_param_shape} onwards should be of size k={k}"
         # Reshape the array to the original shape
         original_shape = (x.shape[0],) + param_shape + suffix_shape
         x = x.reshape(original_shape)

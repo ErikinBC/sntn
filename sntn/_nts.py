@@ -177,11 +177,7 @@ class _nts():
         z1 = self.dist_Z1.rvs([ndraw,self.k], random_state=seed)
         z2 = self.dist_Z2.rvs([ndraw, self.k], random_state=seed)
         w = z1 + z2
-        try:
-            w = reverse_broadcast_from_k(w, self.param_shape)
-        except:
-            breakpoint()
-            w = reverse_broadcast_from_k(w, self.param_shape)
+        w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
 
