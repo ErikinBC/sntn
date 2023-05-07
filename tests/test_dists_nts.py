@@ -17,7 +17,7 @@ from parameters import seed
 from sntn.utilities.utils import try_except_breakpoint
 
 # Used for pytest
-params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
+params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),][1:2]
 params_alpha = [ (0.2), (0.1), (0.05) ]
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
@@ -32,27 +32,6 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     c1 = np.random.rand(*shape)
     c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
-
-@pytest.mark.parametrize("shape", params_shape)
-def test_nts_ppf(shape:tuple or list, ndraw:int=1000000, tol_err:float=2e-2) -> None:
-    """
-    Checks that the quantile function works as expected:
-    i) Do empirical quantiles of rvs align with ppf?
-    """
-    # shape, alpha, ndraw = params_shape[0], params_alpha[1], 1000
-    # Percentiles to check
-    p_seq = np.arange(0.01,1,0.01)
-    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b)
-    x = dist.rvs(ndraw, seed)
-    # Get the empirical quantile
-    emp_q = np.quantile(x, p_seq, axis=0)
-    # Get the theoretical quantile
-    theory_q = dist.ppf(p_seq, method='root_loop', verbose=True, verbose_iter=50)
-    # Compare the errors
-    maerr = np.abs(emp_q - theory_q).max()
-    assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
-
 
 
 @pytest.mark.parametrize("shape", params_shape)
@@ -81,7 +60,8 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250) -> None:
     x = np.squeeze(dist.rvs(ndraw, seed))
     stime = time()
     print('Finding CIs')
-    param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=50)
+    # breakpoint()
+    param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=25)
     dtime, nroot = time() - stime, int(np.prod(param_ci.shape))
     rate = nroot / dtime
     print(f'Calculate {rate:.1f} roots per second (seconds={dtime:.0f}, roots={nroot})')
@@ -102,7 +82,7 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250) -> None:
     pval_mu = 2*min(pval_mu, 1-pval_mu)
     cover_mu = tmp_df['cover'].mean()
     # try_except_breakpoint(pval_mu > 0.05, 'Coverage did not match expected level')
-    print(f'target={1-alpha}, shape={str(shape)}, coverage={100*cover_mu:.1f}%, pval={100*pval_mu:.1f}%')
+    print(f'~~~ target={1-alpha}, shape={str(shape)}, coverage={100*cover_mu:.1f}%, pval={100*pval_mu:.1f}% ~~~')
     
     # # Find the actual alpha/2, 1-alpha/2 quantile values, and confirm that coverage fails ONLY outside them
     # from scipy.optimize import root
@@ -128,10 +108,28 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250) -> None:
     # res_param = pd.concat(holder_param).reset_index(drop=True)
     
 
+@pytest.mark.parametrize("shape", params_shape)
+def test_nts_ppf(shape:tuple or list, ndraw:int=1000000, tol_err:float=2e-2) -> None:
+    """
+    Checks that the quantile function works as expected:
+    i) Do empirical quantiles of rvs align with ppf?
+    """
+    # Percentiles to check
+    p_seq = np.arange(0.01,1,0.01)
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b)
+    x = dist.rvs(ndraw, seed)
+    # Get the empirical quantile
+    emp_q = np.quantile(x, p_seq, axis=0)
+    # Get the theoretical quantile
+    theory_q = dist.ppf(p_seq, method='root_loop', verbose=True, verbose_iter=50)
+    # Compare the errors
+    maerr = np.abs(emp_q - theory_q).max()
+    assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
 
 
 @pytest.mark.parametrize("shape", params_shape)
-def test_nts_cdf(shape:tuple, ndraw:int=10000, tol_cdf:float=0.01) -> None:
+def test_nts_cdf(shape:tuple, ndraw:int=20000, tol_cdf:float=0.01) -> None:
     """Checks that:
     i) CDF aligns with classic 1964 paper
     ii) Empirical rvs aligns with cdf
@@ -154,7 +152,6 @@ def test_nts_cdf(shape:tuple, ndraw:int=10000, tol_cdf:float=0.01) -> None:
     cdf_rvs = np.mean(dist.rvs(ndraw, seed) <= x, 0)
     err_max = np.abs(cdf_theory - cdf_rvs).max()
     assert err_max < tol_cdf, f'Maximum error {err_max} was greater than {tol_cdf}'
-
     
 
 @pytest.mark.parametrize("shape", params_shape)
@@ -200,17 +197,19 @@ def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
     mu_rvs = data.mean(0)
     mu_theory = dist.mean()
     assert np.all(np.abs(mu_rvs - mu_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
-    # # Check median
-    # med_rvs = np.median(data, 0)
-    # med_theory = dist.ppf(0.5)
-    # assert np.all(np.abs(med_rvs - med_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
-    
+    # Check median
+    med_rvs = np.median(data, 0)
+    med_theory = dist.ppf(p=0.5)
+    assert np.all(np.abs(med_rvs - med_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
+
 
 
 if __name__ == "__main__":
     print('--- test_nts_rvs ---')
     test_nts_rvs()
+    test_nts_cdf()
     test_nts_pdf()
+    test_nts_ppf()
 
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

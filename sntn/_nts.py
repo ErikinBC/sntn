@@ -144,16 +144,16 @@ class _nts():
         # Broadcast x to the same dimension of the parameters
         w = broadcast_to_k(np.atleast_1d(w), self.param_shape)
         m1 = (w - self.theta1) / self.sigma1
-        # Calculate the orthant probabilities
-        orthant1 = self.bvn.cdf(x1=m1, x2=self.alpha, return_orthant=True)
-        orthant2 = self.bvn.cdf(x1=m1, x2=self.beta, return_orthant=True)
+        # Calculate the CDF (note that 1-(orth1-orth2)/Z = (CDF2 - CDF1)/Z)
+        cdf1 = self.bvn.cdf(x1=m1, x2=self.alpha)
+        cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
         # Get CDF
-        pval = 1 - (orthant1 - orthant2) / self.Z
-        # When orthant1 and orthant2 are zero or less, then the CDF should be zero as well
-        idx_tail_neg = (orthant1 <= 0) & (orthant2 <= 0)
-        pval[idx_tail_neg] = 0
-        pval = np.clip(pval, 0.0, 1.0)  # For very small numbers can lead to small negative numbers
-        # Return to original shape
+        pval = (cdf2 - cdf1) / self.Z
+        # # When orthant1 and orthant2 are zero or less, then the CDF should be zero as well
+        # idx_tail_neg = (orthant1 <= 0) & (orthant2 <= 0)
+        # pval[idx_tail_neg] = 0
+        # pval = np.clip(pval, 0.0, 1.0)  # For very small numbers can lead to small negative numbers
+        # # Return to original shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
             
@@ -239,7 +239,7 @@ class _nts():
             w = np.zeros(w0.shape)
             stime = time()
             for i in range(n):
-                solution_i = root(self._err_cdf_p,w0[i], args=(p[i]))
+                solution_i = root(self._err_cdf_p, np.atleast_1d(w0[i]), args=(np.atleast_1d(p[i])))
                 merr_i = np.abs(solution_i.fun).max()
                 assert merr_i < tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol}'
                 w[i] = solution_i.x
@@ -320,12 +320,15 @@ class _nts():
             param_fixed = 'mu1'  # Use mu1 for convenience
             assert self.fix_mu==True, 'if param_fixed="mu" then fix_mu==True'
             di_dist_args['mu2'] = None  # One parameter must be None with fix_mu=True, and since mu1 will be assigned every time, this is necessary
+            # x_mu1, x_mu2 = x, None
         elif param_fixed == 'mu1':
             param_fixed = 'mu1'
             di_dist_args['mu2'] = self.mu2
+            # x_mu1, x_mu2 = x/2, self.mu2
         else:
             param_fixed = 'mu2'
             di_dist_args['mu1'] = self.mu1
+            # x_mu1, x_mu2 = self.mu1, x/2
         # Set up solver
         solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, alpha=alpha, **get_valid_kwargs_cls(conf_inf_solver, **kwargs))
         # Assign the remainder of the parameter
@@ -340,11 +343,21 @@ class _nts():
             assert isinstance(verbose_iter, int) and (verbose_iter > 0)
         res = np.zeros(x.shape + (2,))
         n_iter = x.shape[0]
+        # Determine kwargs that will be passed
+        kwargs_for_conf_int = get_valid_kwargs_method(solver, '_conf_int', **kwargs)
+        # Use x as the starting values
+        x0, x1 = x.copy(), x.copy()
+        # # Use naive quantile methods to estimate the lowerbound and the upperbound for starting points
+        # x0 = x + self.sigma1*norm.ppf(alpha)
+        # x1 = x + self.sigma1*norm.ppf(1-alpha)
+        # dist_ci = _nts(x_mu1, self.tau21, x_mu2, self.tau22, self.a, self.b, self.c1, self.c2, self.fix_mu)
+        # x0 = dist_ci.ppf(0.25, method='approx').reshape(x.shape)
+        # x1 = dist_ci.ppf(0.75, method='approx').reshape(x.shape)
         for i in range(n_iter):
             if verbose:
                 if (i+1) % verbose_iter == 0:
                     print(f'Iteration {i+1} of {n_iter}')
-            res[i] = solver._conf_int(x=x[i], di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
+            res[i] = solver._conf_int(x=x[i], di_dist_args=di_dist_args, x0=x0[i], x1=x1[i], **kwargs_for_conf_int)
         # res = solver._conf_int(x=x, di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
         res = reverse_broadcast_from_k(res, self.param_shape,(2,))
         # Return matrix of values

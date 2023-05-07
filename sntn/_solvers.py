@@ -211,10 +211,22 @@ class conf_inf_solver():
         Will try the root optimizer, and experiment with different starting values if the optimizer fails. Assumes di has been constructed so that root(**di) will run
         """
         res = root(**di)  # Run optimizer
+        aerr = np.abs(res['fun'])  # Absolute value of the error
         x = res.x  # Extract solition
-        idx_fail = np.abs(res['fun']) > tol  # Check run
+        idx_fail = aerr > tol  # Check run
+
         if idx_fail.any():
             print(f'Warning, {idx_fail.sum()} roots failed to meet tolerance of {tol}, nudging')
+            import pandas as pd
+            # Try weighting between solution and x as a function fo the error?
+            weight = aerr / di['args'][1]
+            pd.DataFrame({'solution':res.x, 'err':res.fun.round(3), 'w':weight, 'start':di['x0'], 'x':di['args'][0]})
+            di2 = di.copy()
+            di2['x0'] = np.array([10, 2.7, 1.35, 0.0, 3.45])
+            breakpoint()
+            di['fun'](di2['x0'], *di2['args']).round(3)
+            res2 = root(**di2)
+            pd.DataFrame({'solution':res2.x, 'err':res2.fun.round(3), 'start':di2['x0'], 'x':di2['args'][0]})
             assert 'x0' in di, 'expected x0 to be in di'
             assert 'args' in di, 'expected args to be in di'
             di_fail = di.copy()
@@ -228,13 +240,13 @@ class conf_inf_solver():
             di_fail['x0'] = x0_low
             res_fail_low = root(**di_fail)
             # Pick the better of the two values...
-            breakpoint()
+            
             
             x[idx_fail] = res_fail.x
         return x
 
 
-    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge') -> np.ndarray:
+    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', x0:np.ndarray or None=None, x1:np.ndarray or None=None) -> np.ndarray:
         """
         Parameters
         ----------
@@ -246,6 +258,8 @@ class conf_inf_solver():
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI? (default=+100000)
         fun_x0:             Is there a function that should map x to a starting vector/float of x0?
         fun_x1:             Is there a function that should map x to a starting float of x1 (see root_scalar)?
+        x0:                 For the root method, if specified gives the starting point for the lowerbound solution (default=None)
+        x1:                 For the root method, if specified gives the starting point for the upperbound solution (default=None)
         
         fun_x01_type
         ------------
@@ -407,16 +421,21 @@ class conf_inf_solver():
 
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            di_base = {**{'fun':self._err_cdf, 'x0':fun_x0(x.flatten()), 'jac':self.dF_dtheta, 'args':()}, **di_scipy}
+            if x0 is None:
+                x0 = fun_x0(x.flatten())
+            if x1 is None:
+                x1 = fun_x1(x.flatten())
+            di_base = {'fun':self._err_cdf, 'jac':self.dF_dtheta, 'args':()}
+            di_base = {**di_base, **di_scipy}
             # Solve for the lower-bound
             arg_vec[1] = 1-self.alpha/2
             di_base['args'] = tuple(arg_vec)
-            ci_lb = self.try_root(di_base)
-            # ci_lb = root(**di_base).x
+            di_base['x0'] = x0  # Use x0 for the lowerbound
+            ci_lb = self.try_root(di_base)  # root(**di_base).x
             # Solve for upper-bound
             arg_vec[1] = self.alpha/2
             di_base['args'] = tuple(arg_vec)
-            # ci_ub = root(**di_base).x
+            di_base['x0'] = x1  # Use x1 for the upperbound
             ci_ub = self.try_root(di_base)
             # Return to original size
             ci_lb = ci_lb.reshape(x.shape)
@@ -429,7 +448,6 @@ class conf_inf_solver():
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
-                breakpoint()
                 raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:

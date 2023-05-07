@@ -19,6 +19,7 @@ from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_datafram
 params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
 
 
+
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generating BVN parameters"""
     np.random.seed(seed)
@@ -32,7 +33,7 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 def test_bvn_cdf(shape:tuple, ndraw:int=10, nsim:int=100000, tol:float=0.03) -> None:
-    """Make sure that the scipy CDF method words"""
+    """Checks different BVN cdf methods work, with errors indexed to the scipy approach"""
     mu1, sigma21, mu2, sigma22, rho = gen_params(shape, seed)
     # Draw data and see how each method considers the point on the CDF
     dist = bvn(mu1, sigma21, mu2, sigma22, rho)
