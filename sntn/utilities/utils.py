@@ -554,7 +554,10 @@ def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tupl
     # How many of the last dimensions to check
     n_last_dim = 1 + n_dim_suffix
     if len(x_shape) == 1:
-        assert x_shape == param_shape, f'If x is a vector, expect it to match original shape {str(x_shape)}!={param_shape} (e.g. 8 == 8)'
+        assert np.prod(x_shape) == np.prod(param_shape), f'Expected number of dimensions to align'
+        x = x.reshape(param_shape)
+        # assert x_shape == param_shape, f'If x is a vector, expect it to match original shape {str(x_shape)}!={param_shape} (e.g. 8 == 8)'
+        
     elif len(param_shape) == 1:
         assert np.prod(x_shape[-n_last_dim:]) == k, 'When parameter is a scalar, expecting last dimensions to be equal to k (e.g. (4,3,10) == (10))'
     else:

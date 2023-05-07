@@ -4,8 +4,9 @@ Fully specified SNTN distribution
 
 # External
 import numpy as np
-from scipy.optimize import root
+from time import time
 from scipy.stats import truncnorm, norm
+from scipy.optimize import root, root_scalar
 # Internal
 from sntn._bvn import _bvn
 from sntn.utilities.grad import _log_gauss_approx
@@ -187,18 +188,76 @@ class _nts():
     #     return None
 
 
-    def ppf(self, p:np.ndarray, alpha:float, **kwargs) -> np.ndarray:
+    def _err_cdf_p(self, w:np.ndarray, p:np.ndarray) -> np.ndarray:
         """
-        Returns the quantile function
-        
-        p:              An array of 
-        """
-        # Make sure aligns with the parameters
-        p_flat = broadcast_to_k(p, self.param_shape)
-        lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)
+        Utility function that can be passed into a root solver so that a (n,k) array of points can be evaluated to an (n,k) array of percentiles
 
-        x_lb = root(fun=-alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
-        return None
+        When w/p are flat arrays, we assume assume they need to be reshaped to be passed into the cdf function. When they have two or more dimensions, we assume that the output needs to be flattenerd
+        """
+        assert w.shape == p.shape, 'Unsure why w.shape != p.shape?'
+        if len(w.shape) == 1:
+            # w/p are the incorrect shapes for evaluation, they need to be reshaped to be (n,k)
+            n = w.shape[0] / self.k
+            assert n == int(n), 'expected n to be a whole number'
+            n = int(n)
+            w = np.squeeze(w.reshape([n,self.k]))
+            pval = self.cdf(w)
+            p = np.squeeze(p.reshape(pval.shape))
+            err = (pval - p).flatten()
+        else:
+            # w/p are the correct shapes for evaluation, but they need to be flattened for the root solver
+            err = self.cdf(w) - p
+        return err.flatten()
+
+
+    def ppf(self, p:np.ndarray, method:str='root_loop', tol:float=1e-3, verbose:bool=False, verbose_iter:int=50, **kwargs) -> np.ndarray:
+        """
+        Returns the quantile of the NTS distribution(s)
+        
+        Arguments
+        ---------
+        p:                  An array of whose last dimensions can be flattened
+        method:             See below (default='root_loop')
+        tol:                Maximum tolerance we will allow for solution to have failed
+        verbose:            For the root_loop method, whether updates should be printed
+        verbose_iter:       If verbose, after how many iterations should a status be printed?
+
+        """
+        valid_ppf_methods = ['root', 'root_loop', 'approx']
+        assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
+        # Make sure aligns with the parameters
+        p = broadcast_to_k(np.atleast_1d(p), self.param_shape)
+        # Use the naive quantiles for an initial guess
+        w0 = self.dist_Z1.ppf(p) + self.dist_Z2.ppf(p)
+        assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
+        if method == 'approx':
+            # Use the simple quantiles
+            w = reverse_broadcast_from_k(w0, self.param_shape)
+        if method == 'root_loop':
+            # Still technically the root, but will loop over the samples
+            n = len(w0)
+            w = np.zeros(w0.shape)
+            stime = time()
+            for i in range(n):
+                solution_i = root(self._err_cdf_p,w0[i], args=(p[i]))
+                merr_i = np.abs(solution_i.fun).max()
+                assert merr_i < tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol}'
+                w[i] = solution_i.x
+                if verbose:
+                    if (i+1) % verbose_iter == 0:
+                        dtime, nleft = time() - stime, n - (i+1)
+                        rate = (i+1) / dtime
+                        seta = nleft / rate
+                        print(f'Iteration {i+1} of {n} (ETA={seta/60:.1f} minutes)')
+            w = reverse_broadcast_from_k(w, self.param_shape)
+        if method == 'root':
+            solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
+            merr = np.abs(solution.fun).max()
+            assert merr < tol, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol}'
+            w = solution.x.reshape(w0.shape) # Reshape
+            # Put to original param shape
+            w = reverse_broadcast_from_k(w, self.param_shape)
+        return w
 
 
     def _find_dist_kwargs_CI(**kwargs) -> tuple:
@@ -287,7 +346,6 @@ class _nts():
                     print(f'Iteration {i+1} of {n_iter}')
             res[i] = solver._conf_int(x=x[i], di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
         # res = solver._conf_int(x=x, di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
-        # breakpoint()
         res = reverse_broadcast_from_k(res, self.param_shape,(2,))
         # Return matrix of values
         return res

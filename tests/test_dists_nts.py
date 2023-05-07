@@ -17,8 +17,8 @@ from parameters import seed
 from sntn.utilities.utils import try_except_breakpoint
 
 # Used for pytest
-params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),][1:]
-params_alpha = [ (0.2), (0.1), (0.05) ][:1]
+params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
+params_alpha = [ (0.2), (0.1), (0.05) ]
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     """Convenience wrapper for generates NTS parameters"""
@@ -32,6 +32,27 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
     c1 = np.random.rand(*shape)
     c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
+
+@pytest.mark.parametrize("shape", params_shape)
+def test_nts_ppf(shape:tuple or list, ndraw:int=1000000, tol_err:float=2e-2) -> None:
+    """
+    Checks that the quantile function works as expected:
+    i) Do empirical quantiles of rvs align with ppf?
+    """
+    # shape, alpha, ndraw = params_shape[0], params_alpha[1], 1000
+    # Percentiles to check
+    p_seq = np.arange(0.01,1,0.01)
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b)
+    x = dist.rvs(ndraw, seed)
+    # Get the empirical quantile
+    emp_q = np.quantile(x, p_seq, axis=0)
+    # Get the theoretical quantile
+    theory_q = dist.ppf(p_seq, method='root_loop', verbose=True, verbose_iter=50)
+    # Compare the errors
+    maerr = np.abs(emp_q - theory_q).max()
+    assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
+
 
 
 @pytest.mark.parametrize("shape", params_shape)
