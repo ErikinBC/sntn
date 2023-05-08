@@ -36,13 +36,27 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 @pytest.mark.parametrize("alpha", params_alpha)
-def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0.01, tol_xmu:float=0.3) -> None:
+def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0.01, tol_xmu:float or None=0.3, verbose_iter:int=5, n_chunks:int=10, cdf_approach:int='scipy') -> None:
     """
-    Checks that the confidence intervals cover the true parameter at the expected rate
+    Checks thats:
+    i) conf_int method does not error out
+    ii) Coverage is at expected levels (tol_type1)
+    iii) Average of ndraws is close to mean theory (tol_xmu)
+    iv) When the CI does not cover the true parameter, the p-value should be <alpha/2 or >1-alpha/2
+    v) When the CI does not cover the true parameter, the value of x is greater than critical value (using ppf)
     
     Parameters
     ----------
-    shape:              The dimensions of the underlying parameters to take
+    shape:              The dimensions of the underlying parameters to assume (the number of NTS distributions)
+    alpha:              The desired type-I error
+    ndraw:              For each NTS distribution, how many samples (and hence CIs) to draw from?
+    tol_type1:          Assuming (1-alpha)% coverage of binomial null dist, pvalue needed before rejecting null
+    tol_xmu:            The average of draw values should be within tol_xmu of the theoretical mean
+    verbose_iter:       For each CI, after how many solutions should the status be printed?
+    n_chunks:           ..
+    cdf_approach:       Which BVN method should be used (default='scipy')
+
+
 
     """
     # Draw data
@@ -53,18 +67,17 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0
     np.random.seed(seed)
     idx_mu1 = np.random.rand(*mu1.shape) < 0.5
     mu = np.where(idx_mu1, mu1, mu2)
-    dist_gt = nts(mu, tau21, None, tau22, a, b, fix_mu=True)
+    dist_gt = nts(mu, tau21, None, tau22, a, b, fix_mu=True, cdf_approach='owen')
     x = np.squeeze(dist_gt.rvs(ndraw, seed))
     cdf_gt = dist_gt.cdf(x)
     crit_lb = dist_gt.ppf(alpha/2)
     crit_ub = dist_gt.ppf(1-alpha/2)
 
-
     # Find the CIs
     print(f'~~~ Finding CIs for target={1-alpha}, shape={str(shape)} ~~~')
     stime = time()
     dist_ci = nts(1, tau21, None, tau22, a, b, fix_mu=True)
-    param_ci = dist_ci.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=5, cdf_approach='scipy', n_chunks=10)
+    param_ci = dist_ci.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=verbose_iter, cdf_approach=cdf_approach, n_chunks=n_chunks)
     dtime, nroot = time() - stime, int(np.prod(param_ci.shape))
     rate = nroot / dtime
     print(f'Calculated {rate:.1f} roots per second (seconds={dtime:.0f}, roots={nroot})')
@@ -80,11 +93,12 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0
     # Assign values flat
     tmp_df = pd.DataFrame({'param':'mu', 'x':x.flat, 'cdf':cdf_gt.flat, 'crit_lb':crit_lb.flat, 'crit_ub':crit_ub.flat, 'lb':ci_lb.flat, 'ub':ci_ub.flat, 'gt':val_gt.flat, 'x_mu':mu_gt.flat})
     # Make sure the means aligned
-    try_except_breakpoint((tmp_df.groupby('gt')[['x','x_mu']].mean().diff(axis=1)['x_mu'].abs() < tol_xmu).all(), f'Means were not within {tol_xmu} of each other')
+    if tol_xmu is not None:
+        try_except_breakpoint((tmp_df.groupby('gt')[['x','x_mu']].mean().diff(axis=1)['x_mu'].abs() < tol_xmu).all(), f'Means were not within {tol_xmu} of each other')
     
     # Calculate the coverage probability
     tmp_df = tmp_df.assign(cover=lambda x: (x['lb'] <= x['gt']) & (x['ub'] >= x['gt']))
-    print(tmp_df.groupby('gt')['cover'].mean().round(2).reset_index().assign(target=1-alpha))
+    # print(tmp_df.groupby('gt')['cover'].mean().round(2).reset_index().assign(target=1-alpha))
     # tmp_df = tmp_df.sort_values('x').reset_index(drop=True)
     pval_mu = dist_coverage.cdf(tmp_df['cover'].sum())
     pval_mu = 2*min(pval_mu, 1-pval_mu)
@@ -221,11 +235,25 @@ def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
 
 
 if __name__ == "__main__":
-    print('--- test_nts_rvs ---')
-    test_nts_rvs()
-    test_nts_cdf()
-    test_nts_pdf()
-    test_nts_ppf()
+    shape_test = params_shape[2]
+    alpha_test = params_alpha[1]
+    
+    print('--- test_nts_conf_int ---')
+    # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
+    # Try Owen's method to make sure that scipy backup works as expected
+    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
+
+    # print('--- test_nts_rvs ---')
+    # test_nts_rvs(shape=shape_test)
+    
+    # print('--- test_nts_cdf ---')
+    # test_nts_cdf(shape=shape_test)
+    
+    # print('--- test_nts_pdf ---')
+    # test_nts_pdf(shape=shape_test)
+    
+    # print('--- test_nts_ppf ---')
+    # test_nts_ppf(shape=shape_test)
 
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

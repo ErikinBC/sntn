@@ -149,8 +149,11 @@ class _nts():
         cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
         # Get CDF
         pval = (cdf2 - cdf1) / self.Z
-        # If cdf2 and cdf1 1 are both 1, then tail is so extreme solution is one
-        pval[(cdf2 == 1) & (cdf1 == 1)] = 1
+        # If cdf2 and cdf1 1 are effectively, then tail is so extreme solution is one
+        pval[(cdf2 - cdf1 == 0) & (cdf2.round(5) == 1)] = 1
+        # If Z is zero, then it's going to be zero
+        pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
+        # Return to proper shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
             
@@ -292,7 +295,7 @@ class _nts():
         return mu, tau21, tau22, c1, c2, fix_mu, kwargs
 
 
-    def conf_int(self, x:np.ndarray, alpha:float=0.05, n_chunks:int=5, param_fixed:str='mu', **kwargs) -> np.ndarray:
+    def conf_int(self, x:np.ndarray, alpha:float=0.05, n_chunks:int=1, param_fixed:str='mu', **kwargs) -> np.ndarray:
         """
         Assume W ~ NTS()...
 
@@ -303,12 +306,15 @@ class _nts():
         x:                      An array-like object of points that corresponds to dimensions of estimated means
         alpha:                  Type-1 error rate
         param_fixed:            Which parameter are we doing inference on ('mu'==fix mu1==mu2, 'mu1', 'mu2')?
-        n_chunks:               How many roots to solve at a time? (default=5) 
+        n_chunks:               How many roots to solve at a time? (default=1) 
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
         # Make sure x is the right dimension
         x = try2array(x)
         x = broadcast_to_k(x, self.param_shape)
+        if x.shape == (self.k,):
+            # Assume each point corresponds to a single parameter
+            x = np.expand_dims(x, 0)
 
         # Storage for the named parameters what will go into class initialization (excluded param_fixed)
         di_dist_args = {}
@@ -353,7 +359,7 @@ class _nts():
         for i in range(self.k):
             # Take the i'th parameter values
             di_dist_args_i = {k:v[i] if isinstance(v, np.ndarray) else v for k,v in di_dist_args.items()}
-            x_i = np.take(x, i, -1)
+            x_i = np.atleast_1d(np.take(x, i, -1))
             # Loop over the n_iter rows of chunk
             for j in range(n_iter):
                 start, stop = int(j*n_chunks), int((j+1)*n_chunks)

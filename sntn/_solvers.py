@@ -159,7 +159,9 @@ class conf_inf_solver():
         # Combine the named parameter with any other ones
         dist_kwargs[self.param_theta] = theta
         # Evaluate the error
-        err = self.dist(**dist_kwargs).cdf(x) - alpha
+        dist = self.dist(**dist_kwargs)
+        cdf = dist.cdf(x)
+        err = cdf - alpha
         if flatten:
             err = err.flatten()
         return err
@@ -223,8 +225,14 @@ class conf_inf_solver():
             di_fail['f'] = di_fail.pop('fun')
             del di_fail['jac']
             di_fail['x0'] = di_fail['x0'][idx_fail]
-            di_fail['args'] = list(di_fail['args'])
-            di_fail['args'][0] = di_fail['args'][0][idx_fail]
+            di_fail['args'] = list(di_fail['args'])  # Only lists support index overwriting
+            di_fail['args'][0] = di_fail['args'][0][idx_fail]  # These are the "x" points to solve for
+            # Index 2 are the named arguments
+            if 'cdf_approach' in di_fail['args'][2]:
+                idx_approach = np.argmax(np.array(di_fail['args'][2]) == 'cdf_approach')
+                # scipy is slower, but more stable
+                di_fail['args'][3][idx_approach] = 'scipy'
+            # Index 3 are all the other distribution parameters (e.g. mu, tau21)
             di_fail['args'][3] = [v[idx_fail] if isinstance(v, np.ndarray) else v for v in di_fail['args'][3]]
             di_fail['args'] = tuple(di_fail['args'])
             
@@ -236,7 +244,9 @@ class conf_inf_solver():
             for k in range(len(x0_check)):
                 fun_check[k] = di_fail['f'](x0_check[k], *di_fail['args'])
             # Find the first point of transition
-            idx_flip = np.argmax(np.diff(fun_check > 0, axis=0),axis=0)
+            idx_flip = np.diff(fun_check > 0, axis=0)
+            assert np.all(np.sum(idx_flip, axis=0) == 1), 'Multipe sign changes found!!'
+            idx_flip = np.argmax(idx_flip, axis=0)
             x_low = x0_check[idx_flip, range(n_fail)]
             x_high = x0_check[idx_flip+1, range(n_fail)]
             # Ensure the signs do not align

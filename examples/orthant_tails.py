@@ -14,6 +14,28 @@ from sntn.utilities.grad import _log_gauss_approx
 
 
 """
+Coverage issue??
+"""
+alpha = 0.10
+mu = -1.0981486325572187
+a = -2.7137160197677566
+b = -0.19826792238746457
+tau21 = 43.10846981486246
+tau22 = 2.268561623113654
+x = 3.535477
+lb, ub = -26.16196, -5.192813
+
+dist_gt = nts(mu, tau21, None, tau22, a=a, b=b, fix_mu=True, cdf_approach='scipy')
+
+dist_gt.ppf(alpha/2)
+dist_gt.ppf(1-alpha/2)
+ci_emp = dist_gt.conf_int(x, alpha=alpha, cdf_approach='owen').flatten()
+nts(ci_emp[0], tau21, None, tau22, a=a, b=b, fix_mu=True, cdf_approach='scipy').cdf(x)
+nts(ci_emp[1], tau21, None, tau22, a=a, b=b, fix_mu=True, cdf_approach='scipy').cdf(x)
+
+
+
+"""
 Unstable CDF?
 """
 
