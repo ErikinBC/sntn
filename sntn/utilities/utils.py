@@ -6,9 +6,88 @@ Utility functions
 import os
 import numpy as np
 import pandas as pd
+from inspect import getfullargspec, signature
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+
+def try_except_breakpoint(cond:bool, stmt:str or None=None):
+    if stmt is None:
+        stmt = ''
+    try:
+        assert cond, stmt
+    except:
+        breakpoint()
+        cond
+
+
+def get_valid_kwargs_cls(cls, **kwargs):
+    # Get the class constructor's parameter names
+    sig = signature(cls.__init__)
+    valid_kwargs = set(sig.parameters.keys()) - {'self'}    
+    # Filter the input kwargs to only include valid kwargs
+    return {k: v for k, v in kwargs.items() if k in valid_kwargs}
+
+
+def get_valid_kwargs_method(obj, method_name, **kwargs):
+    method = getattr(obj, method_name)
+    arg_names = getfullargspec(method).args[1:]
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
+    return filtered_kwargs
+
+
+def pass_kwargs_to_classes(cls, *args, **kwargs):
+    """Try passing keywords to class, and the class will only use those kwargs that match named arguments"""
+    arg_names = set(getfullargspec(cls.__init__).args[1:])
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in arg_names}
+    return cls(*args, **filtered_kwargs)
+
+
+
+def process_x_x1_x2(x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> tuple:
+    """
+    For the bivariate normal, extract the two coordinates
+
+    Args:
+    ----
+    x (np.ndarray):
+        A (n1,..,nj,d1,..,dk,2) array
+    x1 (np.ndarray):
+        If x is not specified...
+    x2 (np.ndarray):
+        Second coordinate if x not specified
+
+    Returns
+    -------
+    An tuple of (d1,..,dk) arrays
+    """
+    if x is None:
+        assert x1 is not None and x2 is not None, 'if x is not specified, then x1/x2 need to be'
+        x1, x2 = np.broadcast_arrays(x1, x2)
+    else:
+        x = np.asarray(x)
+        assert x.shape[-1] == 2, 'if x is given (rather than x1/x2), last dimension needs to be of size 2'
+        # Take out x1/x2
+        x1, x2 = np.take(x, 0, -1), np.take(x, 1, -1)
+    return x1, x2
+
+
+def array_to_dataframe(arr:np.ndarray) -> pd.DataFrame:
+    """Converts an (n, d1, ..., dk) array into a DataFrame of dimension (n, d1*...*dk) with multindexing for the columns"""
+    shape = arr.shape
+    n = shape[0]
+    dims = shape[1:]
+    index = pd.MultiIndex.from_product([range(d) for d in dims], names=[f'd{i}' for i in range(1, len(dims)+1)])
+    values = arr.reshape(n, -1)
+    return pd.DataFrame(values, columns=index)
+
+
+def try2array(x) -> np.ndarray:
+    """Checks to see if x is ndarray, and if not tries to make at least-1d"""
+    if not isinstance(x, np.ndarray):
+        return np.atleast_1d(x)
+    else:
+        return x
 
 
 def no_diff(x, y):
@@ -308,8 +387,9 @@ def broastcast_max_shape(*args, **kwargs) -> Tuple:
             vprint(f'# --- Case 4: different dimensions --- #', verbose)
             assert n_max_shape > n_sarg, f'If we are in case 4, expected {n_max_shape} > {n_sarg}'
             # Else, we assume that we only need to append a one (if this fails it will be caught at the assertion error below)
-            pos_expand_axis = list(n_sarg + np.arange(n_max_shape - n_sarg))
-            args_i = np.expand_dims(arg, axis=pos_expand_axis)
+            args_i = np.broadcast_to(arg, np.broadcast_shapes(max_shape, sarg))
+            # pos_expand_axis = list(n_sarg + np.arange(n_max_shape - n_sarg))
+            # args_i = np.expand_dims(arg, axis=pos_expand_axis)
         # Check and then update
         assert args_i.shape == max_shape, f'Woops expected {args_i.shape} == {max_shape}'
         args[i] = args_i
@@ -349,3 +429,140 @@ def check_err_cdf_tol(solver, theta:np.ndarray, x:np.ndarray, alpha:float, **dis
     assert np.all(solver._err_cdf2(**di_eval) != 0), 'Squared-error was zero'
     if has_dF_dtheta:
         assert np.all(solver._derr_cdf2(**di_eval) != 0), 'Derivative was zero'
+
+
+def flip_last_axis(x:np.ndarray) -> np.ndarray:
+    """Flips a np.array so the last axis becomes first"""
+    return x.transpose((len(x.shape)-1,) + tuple(range(len(x.shape)-1)))
+
+
+def fast_corr(A:np.ndarray, B:np.ndarray) -> np.ndarray:
+    """Calculates the column-wise correlations between two arrays"""
+    # calculate the means of each column of A and B
+    mean_A = np.mean(A, axis=0)
+    mean_B = np.mean(B, axis=0)
+    # subtract the means from each column of A and B
+    A_centered = A - mean_A
+    B_centered = B - mean_B
+    # calculate the norm of each column of A and B
+    norm_A = np.linalg.norm(A_centered, axis=0)
+    norm_B = np.linalg.norm(B_centered, axis=0)
+    # calculate the dot product of each pair of centered columns in A and B
+    dot_products = np.sum(A_centered * B_centered, 0)
+    # divide each dot product by the product of the corresponding norms to get the correlation coefficient
+    correlations = dot_products / (norm_A * norm_B)
+    return correlations
+
+
+def rho_debiased(x:np.ndarray, y:np.ndarray, method:str='fisher') -> np.ndarray:
+    """
+    Return a debiased version of the emprical correlation coefficient
+    
+    Parameters
+    ----------
+    x:              A (n,i,j,k,...) dim array
+    y:              Matches dim of x
+
+    Returns
+    -------
+    An (i,j,k,...) array of correlation coefficients
+    """
+    valid_methods = ['pearson', 'fisher', 'olkin']
+    assert method in valid_methods, f'method must be one of {valid_methods}'
+    assert x.shape == y.shape, 'x and y must be the same shapes'
+    # Assume the first dimension is size
+    n = x.shape[0]
+    rho = fast_corr(x, y)
+    if method == 'pearson':
+        return rho
+    if method == 'fisher':
+        return rho * (1 + (1-rho**2)/(2*n))
+    if method == 'olkin':
+        return rho * (1 + (1-rho**2)/(2*(n-3)))
+
+
+
+def broadcast_to_k(x:np.ndarray, param_shape:tuple) -> np.ndarray:
+    """When an array is passed into the a pdf/cdf/ppf method, we need to determine how to broadbast the array for doing inference. Suppose k is the flattened dimension of some input parameters, then when the input is a matrix, 
+    
+    nd = len(x.shape)
+    if nd == 1:
+        if x.shape[0] == k:
+            Assume we want value returned for that specific parameter. For example, if the input parameters are (10,) and x is (10,) then it will be a 1:1 index mapping (index 1 == parameter 1 == pdf at parameter 1)
+        else:
+            Assume that we want to broadcast it. For example, if input parameters are (10,) and x is (9,), assume we want to calculate the points for all 10 parameters (i.e. 90 calculations)
+    else:
+        When x has 2 or more dimensions, the its input dimensions have to match the input parameters for the last k. For example, if the input parameters are (4,3,2) then x can be (6,6,4,3,2) but not (6,6,3,2) since (...,4,3,2) need to match
+
+    Parameters
+    ----------
+    x:                      An array or arbitray dimension (the last d dimensions need to match len(param_shape) unless param shape is an array in which case it will an outer sweep)
+    param_shape:            The dimension that we want to broadcast for
+    """
+    # Input checks
+    assert isinstance(x, np.ndarray), 'x needs to be an array'
+    assert isinstance(param_shape, tuple)
+    k = int(np.prod(param_shape))
+    # Go through difference options
+    nd_x = len(x.shape)
+    if nd_x == 1:
+        if x.shape[0] == k:
+            # Can return as is (e.g. mu - x) will align in dimension
+            return x
+        else:
+            # Assume outer product type calculation
+            return np.tile(x, [k,1]).T
+    else:
+        # The last dimensions need to match
+        nd_param = len(param_shape)
+        assert nd_x >= nd_param, f'if x is 2 or more dimensions, the last {nd_param} must match the param_shape={param_shape}'
+        nd_x_last = x.shape[-nd_param:]
+        assert nd_x_last == param_shape, f'The last {nd_param} must match the param_shape={param_shape}: {nd_x_last}'
+        # If the dimensions match, then we can flatten the last dimensions
+        return x.reshape(x.shape[:-nd_param] + (k,))
+
+
+def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tuple or None=None) -> np.ndarray:
+    """Reverse the broadcasting performed by the broadcast_to_k function.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        The array to reverse the broadcasting for.
+    param_shape : tuple
+        The original param_shape passed to broadcast_to_k.
+    suffix_shape : tuple or None
+        An extra shape value found at the end of x (default=None)
+
+    Returns
+    -------
+    np.ndarray
+        The array with the original shape before broadcasting.
+    """
+    # Input checks
+    assert isinstance(x, np.ndarray), 'x needs to be an array'
+    assert isinstance(param_shape, tuple)
+    if suffix_shape is None:
+        suffix_shape = ()
+    else:
+        assert isinstance(suffix_shape, tuple), 'if suffix_shape is not None, it needs to be a tuple'
+    n_dim_suffix = len(suffix_shape)
+    n_suffix = int(np.prod(suffix_shape))
+    k = int(np.prod(param_shape) * n_suffix)
+    n_param_shape = len(param_shape)
+    x_shape = x.shape
+    # How many of the last dimensions to check
+    n_last_dim = 1 + n_dim_suffix
+    if len(x_shape) == 1:
+        assert np.prod(x_shape) == np.prod(param_shape), f'Expected number of dimensions to align'
+        x = x.reshape(param_shape)
+        # assert x_shape == param_shape, f'If x is a vector, expect it to match original shape {str(x_shape)}!={param_shape} (e.g. 8 == 8)'
+        
+    elif len(param_shape) == 1:
+        assert np.prod(x_shape[-n_last_dim:]) == k, 'When parameter is a scalar, expecting last dimensions to be equal to k (e.g. (4,3,10) == (10))'
+    else:
+        assert np.prod(x.shape[-n_last_dim:]) == k, f"Dimensions {n_param_shape} onwards should be of size k={k}"
+        # Reshape the array to the original shape
+        original_shape = (x.shape[0],) + param_shape + suffix_shape
+        x = x.reshape(original_shape)
+    return x

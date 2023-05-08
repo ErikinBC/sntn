@@ -7,7 +7,31 @@ python3 -m pytest tests/test_utils.py -s
 
 import numpy as np
 import pandas as pd
-from sntn.utilities.utils import check_all_is_type, try2list, has_assertion_error, check_all_pos, get_max_shape, broastcast_max_shape
+from sntn.utilities.utils import check_all_is_type, try2list, has_assertion_error, check_all_pos, get_max_shape, broastcast_max_shape, broadcast_to_k
+
+def test_broadcast_to_k():
+    """Check that we will broadcast correctly"""
+    # Should catch the last 3
+    parameters = np.random.rand(4,3,2)
+    # Should be array
+    x = np.random.randn(4,3,2)
+    assert broadcast_to_k(x, parameters.shape).shape == (24, ), 'expected it to flatten'
+    x = np.random.randn(5,4,3,2)
+    assert broadcast_to_k(x, parameters.shape).shape == (5, 24), 'expected only first dim to be preserved'
+    x = np.random.randn(6,5,4,3,2)
+    assert broadcast_to_k(x, parameters.shape).shape == (6, 5, 24), 'expected first two dims to be preserved'
+    # Vector parameters
+    parameters = np.random.rand(10)
+    x = np.random.randn(10)
+    assert broadcast_to_k(x, parameters.shape).shape == (10, ), 'Expected 1:1'
+    x = np.random.randn(9, 10)
+    assert broadcast_to_k(x, parameters.shape).shape == (9, 10), 'Expected same shape'
+    x = np.random.randn(11)
+    assert broadcast_to_k(x, parameters.shape).shape == (11, 10), 'Expected it be an outer product'
+    # Failure points
+    x = np.random.randn(10, 9)
+    assert has_assertion_error(broadcast_to_k, x, parameters.shape), 'Would look for last dimensions and find failure (9 != 10)'
+
 
 def test_try2list() -> None:
     """Check that output is list"""
@@ -43,10 +67,11 @@ def test_broastcast_max_shape() -> None:
     assert all([a.shape == (10,2) for a in broastcast_max_shape(*[c, d])])
     assert all([a.shape == (10,2) for a in broastcast_max_shape(*[a, c])])
     assert all([a.shape == (1,2) for a in broastcast_max_shape(*[a, d])])
-    assert has_assertion_error(broastcast_max_shape, *[b,c])
+    assert all([a.shape == (10,2) for a in broastcast_max_shape(*[b,c])])
+    assert all([a.shape == (1,2) for a in broastcast_max_shape(*[b,d])])
     assert has_assertion_error(broastcast_max_shape, *[b,e])
     assert has_assertion_error(broastcast_max_shape, *[c,e])
-    assert has_assertion_error(broastcast_max_shape, *[b,d])
+    
 
 
 if __name__ == "__main__":

@@ -29,6 +29,8 @@ root_scalar         bisect          True
 
 # External 
 import numpy as np
+from time import time
+from warnings import warn
 from copy import deepcopy
 from inspect import getfullargspec
 from scipy.stats import norm
@@ -44,6 +46,17 @@ di_default_methods = {'root':['hybr', 'lm'],
                       'minimize':['Powell','COBYLA','L-BFGS-B'],
                       'root_scalar':['secant','bisect', 'brentq', 'brenth', 'ridder','toms748','newton']}
 no_diff(valid_approaches, di_default_methods.keys())
+
+
+@staticmethod
+def _return_x01_funs(fun_x01_type:str='nudge', **kwargs) -> tuple:
+    """Return the two fun_x{01} to be based into CI solver to find initialization points"""
+    valid_types = ['nudge']
+    assert fun_x01_type in valid_types, f'If fun_x01_type is specified it must be one of {valid_types}'
+    if fun_x01_type == 'nudge':
+        fun_x0 = lambda x: np.atleast_1d(x) * 0.99
+        fun_x1 = lambda x: np.atleast_1d(x) * 1.01
+    return fun_x0, fun_x1
 
 
 @staticmethod
@@ -76,7 +89,7 @@ def _process_args_kwargs_flatten(args:tuple, kwargs:tuple) -> tuple:
 
 
 class conf_inf_solver():
-    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False) -> None:
+    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False, verbose_iter:int=50) -> None:
         """
         The conf_inf_solver class can generate confidence intervals for a single parameter of a distribution. Specifically for a target parameter "theta":
 
@@ -108,12 +121,14 @@ class conf_inf_solver():
         assert hasattr(dist, 'cdf'), 'dist must have a cdf method'
         assert isinstance(param_theta, str), 'param_theta needs to be a string'
         assert isinstance(alpha, float) and (alpha > 0) and (alpha < 1), 'alpha must be a float, and between 0 < alpha < 1'
-        assert isinstance(verbose, bool)
+        assert isinstance(verbose, bool), 'verbose must be a bool'
+        assert isinstance(verbose_iter, int) and (verbose_iter > 0), 'verbose_iter must be an int > 0'
         # Assign
         self.dist = dist
         self.alpha = alpha
         self.param_theta = param_theta
         self.verbose = verbose
+        self.verbose_iter = verbose_iter
         self.dF_dtheta = None
         if dF_dtheta is not None:
             assert callable(dF_dtheta), 'dF_dtheta must be callable'
@@ -144,7 +159,9 @@ class conf_inf_solver():
         # Combine the named parameter with any other ones
         dist_kwargs[self.param_theta] = theta
         # Evaluate the error
-        err = self.dist(**dist_kwargs).cdf(x) - alpha
+        dist = self.dist(**dist_kwargs)
+        cdf = dist.cdf(x)
+        err = cdf - alpha
         if flatten:
             err = err.flatten()
         return err
@@ -152,11 +169,8 @@ class conf_inf_solver():
 
     def _err_cdf0(self, theta:np.ndarray, x:np.ndarray, alpha:float, *dist_args, **dist_kwargs) -> float:
         """Wrapper for _err_cdd to return a float"""
-        try:
-            res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
-        except:
-            breakpoint()
-            self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
+        res = float(self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs))
+        self._err_cdf(theta, x, alpha, *dist_args, **dist_kwargs)
         return res
 
 
@@ -193,19 +207,91 @@ class conf_inf_solver():
         else:
             return x0
 
+    def try_root(self, di:dict, tol:float=1e-3) -> np.ndarray:
+        """
+        Will try the root optimizer, and experiment with different starting values if the optimizer fails. Assumes di has been constructed so that root(**di) will run
+        """
+        res = root(**di)  # Run optimizer
+        aerr = np.abs(res['fun'])  # Absolute value of the error
+        theta = res.x  # Extract solition
+        idx_fail = aerr > tol  # Check run
+        theta_fail = theta[idx_fail].copy()
+        n_fail = idx_fail.sum()
+        if n_fail > 0:
+            theta[idx_fail] = np.nan
+            warn(f'{n_fail} of {len(theta)} failed, trying bounded search')
+            # (i) Subset the dictionary to the failed indices
+            di_fail = di.copy()
+            di_fail['f'] = di_fail.pop('fun')
+            del di_fail['jac']
+            di_fail['x0'] = di_fail['x0'][idx_fail]
+            di_fail['args'] = list(di_fail['args'])  # Only lists support index overwriting
+            di_fail['args'][0] = di_fail['args'][0][idx_fail]  # These are the "x" points to solve for
+            # Index 2 are the named arguments
+            if 'cdf_approach' in di_fail['args'][2]:
+                idx_approach = np.argmax(np.array(di_fail['args'][2]) == 'cdf_approach')
+                # scipy is slower, but more stable
+                di_fail['args'][3][idx_approach] = 'scipy'
+            # Index 3 are all the other distribution parameters (e.g. mu, tau21)
+            di_fail['args'][3] = [v[idx_fail] if isinstance(v, np.ndarray) else v for v in di_fail['args'][3]]
+            di_fail['args'] = tuple(di_fail['args'])
+            
+            # (ii) Do a function line search and check that there is a sign flip
+            sigma1_fail = np.sqrt(di_fail['args'][3][1] + di_fail['args'][3][2])
+            di_fail['x0']
+            x0_check = np.outer(np.arange(-10, 11, 1), sigma1_fail)
+            fun_check = np.zeros(x0_check.shape)
+            for k in range(len(x0_check)):
+                fun_check[k] = di_fail['f'](x0_check[k], *di_fail['args'])
+            # Find the first point of transition
+            idx_flip = np.diff(fun_check > 0, axis=0)
+            assert np.all(np.sum(idx_flip, axis=0) == 1), 'Multipe sign changes found!!'
+            idx_flip = np.argmax(idx_flip, axis=0)
+            x_low = x0_check[idx_flip, range(n_fail)]
+            x_high = x0_check[idx_flip+1, range(n_fail)]
+            # Ensure the signs do not align
+            sign_low = np.sign(di_fail['f'](x_low, *di_fail['args']))
+            sign_high = np.sign(di_fail['f'](x_high, *di_fail['args']))
+            assert np.all(sign_low != sign_high), 'woops signs are aligned!'
 
-    def _conf_int(self, x:np.ndarray, approach:str='root_scalar', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None) -> np.ndarray:
+            # (iii) Loop over each parameter and use the bracket
+            theta_recover = np.zeros(theta_fail.shape)
+            di_fail_j = di_fail.copy()
+            di_fail_j['method'] = 'bisect'
+            del di_fail_j['x0']
+            di_fail_j['args'] = list(di_fail_j['args'])
+            for j in range(n_fail):
+                di_fail_j['args'][0] = di_fail['args'][0][[j]]
+                di_fail_j['args'][3] = [v[[j]] if isinstance(v, np.ndarray) else v for v in di_fail['args'][3]]
+                di_fail_j['bracket'] = [x_low[j], x_high[j]]
+                di_fail_j['args'] = tuple(di_fail_j['args'])
+                sol_j = root_scalar(**di_fail_j)
+                assert sol_j.converged, 'solution j did not converge'
+                theta_recover[j] = sol_j.root
+                di_fail_j['args'] = list(di_fail_j['args'])
+            # Update the failed vector
+            theta[idx_fail] = theta_recover
+        return theta
+
+
+    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', x0:np.ndarray or None=None, x1:np.ndarray or None=None) -> np.ndarray:
         """
         Parameters
         ----------
         x:                  An array-like object of points that corresponds to dimensions of estimated means
-        approach:           Which scipy method to use (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}), default='root_scalar'
-        di_dist_args:       A dictionary that contains the named paramaters which are fixed for CDF calculation (e.g. {'scale':2}), default=None
+        approach:           Which scipy method to use (see scipy.optimize.{root, minimize_scalar, minimize, root_scalar}), default='root'
         di_scipy:           Dictionary to be passed into scipy optimization (e.g. root(**di_scipy), di_scipy={'method':'secant'}), default=None
+        di_dist_args:       A dictionary that contains the named paramaters which are fixed for CDF calculation (e.g. {'scale':2}), default=None
         mu_lb:              Found bounded optimization methods, what is the lower-bound of means that will be considered for the lower-bound CI? (default=-100000)
         mu_ub:              Found bounded optimization methods, what is the upper-bound of means that will be considered for the lower-bound CI? (default=+100000)
         fun_x0:             Is there a function that should map x to a starting vector/float of x0?
         fun_x1:             Is there a function that should map x to a starting float of x1 (see root_scalar)?
+        x0:                 For the root method, if specified gives the starting point for the lowerbound solution (default=None)
+        x1:                 For the root method, if specified gives the starting point for the upperbound solution (default=None)
+        
+        fun_x01_type
+        ------------
+        nudge:          x0 -> x0, x1 -> 1.01*x1
 
         Optimal approaches
         ------------------
@@ -226,9 +312,16 @@ class conf_inf_solver():
         di_scipy = {} if di_scipy is None else di_scipy
         assert isinstance(di_dist_args, dict), 'if di_dist_args is not None, it needs to be a dict'
         assert isinstance(di_scipy, dict), 'if di_scipy is not None, it needs to be a dict'
+    
+        # Get x-initiatization mapping functions
+        base_fun_x0, base_fun_x1 = _return_x01_funs(fun_x01_type)
+        if fun_x0 is None:
+            fun_x0 = base_fun_x0
+        if fun_x1 is None:
+            fun_x1 = base_fun_x1                
         
         # Broadcast x to match underlying parameters (or vice versa)
-        x = np.squeeze(x)  # Squeeze x if we can in cause parameters are (n,)        
+        x = np.squeeze(x)  # Squeeze x if we can in case parameters are (n,)
         tmp = broastcast_max_shape(x, *di_dist_args.values())
         x, di_dist_args = tmp[0], dict(zip(di_dist_args.keys(),tmp[1:]))
         
@@ -281,10 +374,10 @@ class conf_inf_solver():
             
             # Loop over all element points
             i = 0
+            stime = time()
             n_iter = int(np.prod(x.shape))
             for kk in np.ndindex(x.shape): 
                 # Prepare arguments _err_cdf0(theta, x, alpha, **other_args)
-                vprint(f'Iteration {i+1} of {n_iter}', self.verbose and (i+1)%50==0)
                 x_kk = x[kk]
                 # Update initializer
                 x0_kk, x1_kk = self._process_fun_x0_x1(x_kk, fun_x0, fun_x1)
@@ -300,6 +393,13 @@ class conf_inf_solver():
                 # Save
                 ci_lb[kk] = lb_kk
                 ci_ub[kk] = ub_kk
+                if self.verbose:
+                    is_checkpoint = (i+1) % self.verbose_iter==0
+                    if is_checkpoint:
+                        dtime, nleft = time() - stime, n_iter - (i+1)
+                        rate = (i+1) / dtime
+                        seta = nleft / rate
+                        print(f'Iteration {i+1} of {n_iter} (ETA={seta/60:0.1f} minutes)')
                 # Update step
                 i += 1  
 
@@ -328,7 +428,7 @@ class conf_inf_solver():
         
         elif approach == 'minimize':
             # ---- Approach #3: Vector gradient ---- #
-            di_base = {**{'fun':self._err_cdf2, 'args':(), 'x0':x.flatten()}, **di_scipy}
+            di_base = {**{'fun':self._err_cdf2, 'args':(), 'x0':fun_x0(x.flatten())}, **di_scipy}
             if di_scipy['method'] in ['CG','BFGS','L-BFGS-B','TNC','SLSQP']:
                 # Gradient methods
                 di_base['jac'] = self._derr_cdf2
@@ -349,29 +449,34 @@ class conf_inf_solver():
 
         else:
             # ---- Approach #4: Vectorized root finding ---- #
-            di_base = {**{'fun':self._err_cdf, 'x0':x, 'jac':self.dF_dtheta, 'args':()}, **di_scipy}
+            if x0 is None:
+                x0 = fun_x0(x.flatten())
+            if x1 is None:
+                x1 = fun_x1(x.flatten())
+            di_base = {'fun':self._err_cdf, 'jac':self.dF_dtheta, 'args':()}
+            di_base = {**di_base, **di_scipy}
             # Solve for the lower-bound
             arg_vec[1] = 1-self.alpha/2
             di_base['args'] = tuple(arg_vec)
-            ci_lb = root(**di_base).x
+            di_base['x0'] = x0  # Use x0 for the lowerbound
+            ci_lb = self.try_root(di_base)  # root(**di_base).x
             # Solve for upper-bound
             arg_vec[1] = self.alpha/2
             di_base['args'] = tuple(arg_vec)
-            ci_ub = root(**di_base).x
+            di_base['x0'] = x1  # Use x1 for the upperbound
+            ci_ub = self.try_root(di_base)
             # Return to original size
             ci_lb = ci_lb.reshape(x.shape)
             ci_ub = ci_ub.reshape(x.shape)
         if np.any(np.isnan(ci_lb) | np.isnan(ci_ub)):
-            breakpoint()
-            raise Warning('Null values detected!')
+            warn('Null values detected! in the confidence interval, something almost surely went wrong')
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
         is_flipped = False
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
-                breakpoint()
-                raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
+                warn('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:
             mat = np.stack((ci_ub, ci_lb),ci_lb.ndim)

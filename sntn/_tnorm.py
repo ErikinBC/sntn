@@ -8,7 +8,7 @@ from scipy.stats import truncnorm, norm
 # Internal
 from sntn.utilities.grad import _log_gauss_approx, _log_diff
 from sntn.utilities.utils import broastcast_max_shape, grad_clip_abs
-from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
+from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten, _return_x01_funs
 
 class _truncnorm():
     def __init__(self, mu, sigma2, a, b) -> None:
@@ -131,7 +131,7 @@ class _tnorm():
         return a_hat, b_hat, mu_hat, sigma_hat
 
 
-    def rvs(self, n, seed=None) -> np.ndarray:
+    def rvs(self, n:int, seed=None) -> np.ndarray:
         """Wrapper for scipy.stats.truncnorm(...).rvs()"""
         # When sampling it is [num_sample,*dims of parameters]
         samp_shape = (n,)
@@ -169,10 +169,7 @@ class _tnorm():
                 approx = bool(kwargs['approx'][0])
             else:
                 approx = kwargs['approx']
-            try:
-                assert isinstance(approx, bool), 'approx needs to be a bool'
-            except:
-                breakpoint()
+            assert isinstance(approx, bool), 'approx needs to be a bool'
         if 'a_min' in kwargs:
             a_min = kwargs['a_min']
         if 'a_max' in kwargs:
@@ -218,54 +215,50 @@ class _tnorm():
         return dFdmu
 
     @staticmethod
-    def _find_dist_kwargs(**kwargs) -> tuple:
-        """Looks for valid truncated normal distribution keywords Returns sigma, a, b"""
-        sigma2, a, b = kwargs['sigma2'], kwargs['a'], kwargs['b']
-        return sigma2, a, b
-
-
-    @staticmethod
-    def _return_x01_funs(fun_x01_type:str) -> tuple:
-        """Return the two fun_x{01} to be based into CI solver to find initialization points"""
-        valid_types = ['nudge','bounds']
-        assert fun_x01_type in valid_types, f'If fun_x01_type is specified it must be one of {valid_types}'
-        if fun_x01_type == 'nudge':
-            fun_x0 = lambda x: np.atleast_1d(x) *1.0
-            fun_x1 = lambda x: np.atleast_1d(x) *1.01
-        else:
-            # The default initialization of x0:mu_lb, x1:mu_ub will be presevred
-            fun_x0, fun_x1 = None, None
-        return fun_x0, fun_x1
-
-
-    def conf_int(self, x:np.ndarray, alpha:float=0.05, approach:str='root_solver', approx:bool=True, a_min:None or float=None, a_max:None or float=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, di_scipy:dict={}, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', **kwargs) -> np.ndarray:
+    def _find_dist_kwargs_CI(**kwargs) -> tuple:
         """
-        Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find 
-        Calculate the confidence interval for a series of points (x)
+        Looks for valid truncated normal distribution keywords that are needed for generating a CI
+
+        Returns
+        -------
+        sigma2, a, b, a_min, a_max, kwargs
+        """
+        valid_kwargs = ['sigma2','a','b','a_min','a_max']
+        # sigma2, a, b are required
+        sigma2, a, b = kwargs['sigma2'], kwargs['a'], kwargs['b']
+        # If a_{min,max} are not specified, assume they are the default value
+        a_min, a_max = None, None
+        
+        if 'a_min' in kwargs:
+            a_min = kwargs['a_min']
+        if 'a_max' in kwargs:
+            a_max = kwargs['a_max']
+        # Remove only constructor arguments from kwargs
+        kwargs = {k:v for k,v in kwargs.items() if k not in valid_kwargs}
+        # Return constructor arguments and kwargs
+        return sigma2, a, b, a_min, a_max, kwargs
+
+
+    def conf_int(self, x:np.ndarray, alpha:float=0.05, approx:bool=True, **kwargs) -> np.ndarray:
+        """
+        Assume X ~ TN(mu, sigma, a, b), where sigma, a, & b are known. Then for any realized mu_hat (which can be estimated with self.fit()), we want to find the confidence interval for a series of points (x)
 
         Arguments
         ---------
-        See sntn._solvers._conf_int
-        fun_x01_type:       Whether a special x to initialization mapping should be applied (default='nudge'). See below. Will be ignored if fun_x{01} is provided
-
-        fun_x01_type
-        ------------
-        nudge:          x0 -> x0, x1 -> 1.01*x1
-        bounds:         x0 -> mu_lb, x -> mu_ub
+        x:                      An array-like object of points that corresponds to dimensions of estimated means
+        alpha:                  Type-1 error rate
+        approx:                 Whether the Gaussian tail approximation should be used
+        a_m{in/ax}:             Whether gradient clipping should be used
+        fun_x01_type:           Whether a special x to initialization mapping should be applied (default='nudge'). See below. Will be ignored if fun_x{01} is provided
+        kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
         solver = conf_inf_solver(dist=_tnorm, param_theta='mu',dF_dtheta=self._dmu_dcdf, alpha=alpha)
-        # Set up di_dist_args
-        sigma2, a, b = self._find_dist_kwargs(**kwargs)
-        di_dist_args = {'sigma2':sigma2, 'a':a, 'b':b}
-        di_dist_args['a_min'] = a_min
-        di_dist_args['a_max'] = a_max
+        # Set up di_dist_args (these go into the tnorm class basically)
+        sigma2, a, b, a_min, a_max, kwargs = self._find_dist_kwargs_CI(**kwargs)
+        di_dist_args = {'sigma2':sigma2, 'a':a, 'b':b, 'a_min':a_min, 'a_max':a_max}
         di_dist_args['approx'] = approx
-        # Get x-initiatization mapping functions
-        if fun_x0 is None and fun_x1 is None:
-            fun_x0, fun_x1 = self._return_x01_funs(fun_x01_type)
         # Run CI solver
-        # breakpoint()
-        res = solver._conf_int(x=x, approach=approach, di_dist_args=di_dist_args, di_scipy=di_scipy, mu_lb=mu_lb,mu_ub=mu_ub, fun_x0=fun_x0, fun_x1=fun_x1)
+        res = solver._conf_int(x=x, di_dist_args=di_dist_args, **kwargs)
         # Return matrix of values
         return res
 
