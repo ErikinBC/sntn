@@ -243,17 +243,17 @@ if __name__ == "__main__":
     # Try Owen's method to make sure that scipy backup works as expected
     test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
 
-    # print('--- test_nts_rvs ---')
-    # test_nts_rvs(shape=shape_test)
+    print('--- test_nts_rvs ---')
+    test_nts_rvs(shape=shape_test)
     
-    # print('--- test_nts_cdf ---')
-    # test_nts_cdf(shape=shape_test)
+    print('--- test_nts_cdf ---')
+    test_nts_cdf(shape=shape_test)
     
-    # print('--- test_nts_pdf ---')
-    # test_nts_pdf(shape=shape_test)
+    print('--- test_nts_pdf ---')
+    test_nts_pdf(shape=shape_test)
     
-    # print('--- test_nts_ppf ---')
-    # test_nts_ppf(shape=shape_test)
+    print('--- test_nts_ppf ---')
+    test_nts_ppf(shape=shape_test)
 
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

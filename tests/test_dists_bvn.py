@@ -1,6 +1,7 @@
 """
 Makes sure that the BVN class works as expected
 
+python3 -m tests.test_dists_bvn
 python3 -m pytest tests/test_dists_bvn.py -s
 """
 
@@ -86,11 +87,12 @@ def test_bvn_rvs(shape:tuple, ndraw:int=250, nsim:int=1000, tol=0.005) -> None:
     holder_rho = np.zeros((nsim,) + rho.shape)
     holder_mu = np.zeros((nsim,) + mu1.shape + (2,))
     for i in range(nsim):
-        x = dist.rvs(ndraw, i)  # Draw data
+        # Draw data
+        x = dist.rvs(ndraw, i)
         # Moments
         mu_hat = np.mean(x, 0)
         rho_hat = rho_debiased(np.take(x, indices=0, axis=-1),np.take(x, indices=1, axis=-1))
-        # Store
+        # Store        
         holder_rho[i] = rho_hat
         holder_mu[i] = mu_hat
     # Calculate z-scores 
@@ -108,3 +110,16 @@ def test_bvn_rvs(shape:tuple, ndraw:int=250, nsim:int=1000, tol=0.005) -> None:
     err_rho = np.max(np.abs(np.mean(holder_rho, 0) - rho))
     assert err_rho < tol, f'Expected average rhos to be within {tol}: {err_rho}'
 
+
+if __name__ == "__main__":
+    
+    for shape_test in params_shape:
+        print(f'Shape = {shape_test}')
+        print('--- test_bvn_rvs ---')
+        test_bvn_rvs(shape=shape_test)
+        print('--- test_bvn_cdf ---')
+        test_bvn_cdf(shape=shape_test)
+        print('\n')
+    
+    
+    print('~~~ The test_dists_bvn.py script worked successfully ~~~')

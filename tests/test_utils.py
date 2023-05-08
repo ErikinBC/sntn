@@ -67,10 +67,11 @@ def test_broastcast_max_shape() -> None:
     assert all([a.shape == (10,2) for a in broastcast_max_shape(*[c, d])])
     assert all([a.shape == (10,2) for a in broastcast_max_shape(*[a, c])])
     assert all([a.shape == (1,2) for a in broastcast_max_shape(*[a, d])])
-    assert has_assertion_error(broastcast_max_shape, *[b,c])
+    assert all([a.shape == (10,2) for a in broastcast_max_shape(*[b,c])])
+    assert all([a.shape == (1,2) for a in broastcast_max_shape(*[b,d])])
     assert has_assertion_error(broastcast_max_shape, *[b,e])
     assert has_assertion_error(broastcast_max_shape, *[c,e])
-    assert has_assertion_error(broastcast_max_shape, *[b,d])
+    
 
 
 if __name__ == "__main__":

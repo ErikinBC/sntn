@@ -49,7 +49,7 @@ def test_binomial(n:int=50, p0:float=0.5, nsim:int=850, alpha:float=0.1):
         return x / n * 0.9 
 
     def fun_x1(x):
-        return min(x / n * 1.1, 1-1e-3)
+        return np.minimum(x / n * 1.1, 1-1e-3)
     # Run the fastest solver
     p_ci_root = find_ci._conf_int(x=n_obs,approach='root',di_dist_args={'n':n},di_scipy={'method':'hybr'}, mu_lb=1e-3, mu_ub=1-1e-3, fun_x0=fun_x0, fun_x1=fun_x1)
     cover_root = np.mean((p_ci_root[:,0] <= p0) & (p0 <= p_ci_root[:,1]))

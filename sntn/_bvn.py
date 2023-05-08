@@ -134,10 +134,11 @@ class _bvn():
         """
         np.random.seed(seed)
         x = np.random.randn(self.k, 2, ndraw)
-        z = np.einsum('ijk,ikl->ijl', self.A.reshape([self.k,2,2]).transpose(0,2,1), x).transpose(2,1,0)
-        z += np.expand_dims(np.c_[self.mu1, self.mu2].T,0)
+        z = np.einsum('ijk,ikl->ijl', self.A.reshape([self.k,2,2]).transpose(0,2,1), x)
+        z = z.transpose(2,0,1)
+        z += np.c_[self.mu1, self.mu2]
         # Return to original shape
-        z = reverse_broadcast_from_k(z, self.param_shape)
-        # Put second dimension last
-        z = z.transpose([0]+list(range(2,len(z.shape))) + [1])
+        z = reverse_broadcast_from_k(z, self.param_shape, suffix_shape=(2,))
+        # # Put second dimension last
+        # z = z.transpose([0]+list(range(2,len(z.shape))) + [1])
         return z
