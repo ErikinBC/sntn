@@ -30,6 +30,7 @@ root_scalar         bisect          True
 # External 
 import numpy as np
 from time import time
+from warnings import warn
 from copy import deepcopy
 from inspect import getfullargspec
 from scipy.stats import norm
@@ -204,46 +205,63 @@ class conf_inf_solver():
         else:
             return x0
 
-
-    @staticmethod
-    def try_root(di:dict, tol:float=1e-3) -> np.ndarray:
+    def try_root(self, di:dict, tol:float=1e-3) -> np.ndarray:
         """
         Will try the root optimizer, and experiment with different starting values if the optimizer fails. Assumes di has been constructed so that root(**di) will run
         """
         res = root(**di)  # Run optimizer
         aerr = np.abs(res['fun'])  # Absolute value of the error
-        x = res.x  # Extract solition
+        theta = res.x  # Extract solition
         idx_fail = aerr > tol  # Check run
-
-        if idx_fail.any():
-            print(f'Warning, {idx_fail.sum()} roots failed to meet tolerance of {tol}, nudging')
-            import pandas as pd
-            # Try weighting between solution and x as a function fo the error?
-            weight = aerr / di['args'][1]
-            pd.DataFrame({'solution':res.x, 'err':res.fun.round(3), 'w':weight, 'start':di['x0'], 'x':di['args'][0]})
-            di2 = di.copy()
-            di2['x0'] = np.array([10, 2.7, 1.35, 0.0, 3.45])
-            breakpoint()
-            di['fun'](di2['x0'], *di2['args']).round(3)
-            res2 = root(**di2)
-            pd.DataFrame({'solution':res2.x, 'err':res2.fun.round(3), 'start':di2['x0'], 'x':di2['args'][0]})
-            assert 'x0' in di, 'expected x0 to be in di'
-            assert 'args' in di, 'expected args to be in di'
+        theta_fail = theta[idx_fail].copy()
+        n_fail = idx_fail.sum()
+        if n_fail > 0:
+            theta[idx_fail] = np.nan
+            warn(f'{n_fail} of {len(theta)} failed, trying bounded search')
+            # (i) Subset the dictionary to the failed indices
             di_fail = di.copy()
-            x0_high = np.maximum(2*di['x0'][idx_fail], 1+di['x0'][idx_fail])
-            x0_low = np.minimum(0.5*di['x0'][idx_fail], -1+di['x0'][idx_fail])
-            di_fail['args'] = [v[idx_fail] if isinstance(v, np.ndarray) else v for v in di_fail['args']]
+            di_fail['f'] = di_fail.pop('fun')
+            del di_fail['jac']
+            di_fail['x0'] = di_fail['x0'][idx_fail]
+            di_fail['args'] = list(di_fail['args'])
+            di_fail['args'][0] = di_fail['args'][0][idx_fail]
             di_fail['args'][3] = [v[idx_fail] if isinstance(v, np.ndarray) else v for v in di_fail['args'][3]]
             di_fail['args'] = tuple(di_fail['args'])
-            di_fail['x0'] = x0_high
-            res_fail_high = root(**di_fail)
-            di_fail['x0'] = x0_low
-            res_fail_low = root(**di_fail)
-            # Pick the better of the two values...
             
-            
-            x[idx_fail] = res_fail.x
-        return x
+            # (ii) Do a function line search and check that there is a sign flip
+            sigma1_fail = np.sqrt(di_fail['args'][3][1] + di_fail['args'][3][2])
+            di_fail['x0']
+            x0_check = np.outer(np.arange(-10, 11, 1), sigma1_fail)
+            fun_check = np.zeros(x0_check.shape)
+            for k in range(len(x0_check)):
+                fun_check[k] = di_fail['f'](x0_check[k], *di_fail['args'])
+            # Find the first point of transition
+            idx_flip = np.argmax(np.diff(fun_check > 0, axis=0),axis=0)
+            x_low = x0_check[idx_flip, range(n_fail)]
+            x_high = x0_check[idx_flip+1, range(n_fail)]
+            # Ensure the signs do not align
+            sign_low = np.sign(di_fail['f'](x_low, *di_fail['args']))
+            sign_high = np.sign(di_fail['f'](x_high, *di_fail['args']))
+            assert np.all(sign_low != sign_high), 'woops signs are aligned!'
+
+            # (iii) Loop over each parameter and use the bracket
+            theta_recover = np.zeros(theta_fail.shape)
+            di_fail_j = di_fail.copy()
+            di_fail_j['method'] = 'bisect'
+            del di_fail_j['x0']
+            di_fail_j['args'] = list(di_fail_j['args'])
+            for j in range(n_fail):
+                di_fail_j['args'][0] = di_fail['args'][0][[j]]
+                di_fail_j['args'][3] = [v[[j]] if isinstance(v, np.ndarray) else v for v in di_fail['args'][3]]
+                di_fail_j['bracket'] = [x_low[j], x_high[j]]
+                di_fail_j['args'] = tuple(di_fail_j['args'])
+                sol_j = root_scalar(**di_fail_j)
+                assert sol_j.converged, 'solution j did not converge'
+                theta_recover[j] = sol_j.root
+                di_fail_j['args'] = list(di_fail_j['args'])
+            # Update the failed vector
+            theta[idx_fail] = theta_recover
+        return theta
 
 
     def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', x0:np.ndarray or None=None, x1:np.ndarray or None=None) -> np.ndarray:
@@ -441,14 +459,14 @@ class conf_inf_solver():
             ci_lb = ci_lb.reshape(x.shape)
             ci_ub = ci_ub.reshape(x.shape)
         if np.any(np.isnan(ci_lb) | np.isnan(ci_ub)):
-            raise Warning('Null values detected!')
+            warn('Null values detected! in the confidence interval, something almost surely went wrong')
         # Check which order to return the columns so that lowerbound is in the first column position
         is_correct = np.all(ci_ub >= ci_lb)
         is_flipped = False
         if not is_correct:
             is_flipped = np.all(ci_lb >= ci_ub)
             if not is_flipped:
-                raise Warning('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
+                warn('The upperbound is not always larger than the lowerbound! Something probably went wrong...')
         # Return values
         if is_flipped:
             mat = np.stack((ci_ub, ci_lb),ci_lb.ndim)

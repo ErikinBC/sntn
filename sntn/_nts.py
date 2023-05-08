@@ -149,11 +149,8 @@ class _nts():
         cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
         # Get CDF
         pval = (cdf2 - cdf1) / self.Z
-        # # When orthant1 and orthant2 are zero or less, then the CDF should be zero as well
-        # idx_tail_neg = (orthant1 <= 0) & (orthant2 <= 0)
-        # pval[idx_tail_neg] = 0
-        # pval = np.clip(pval, 0.0, 1.0)  # For very small numbers can lead to small negative numbers
-        # # Return to original shape
+        # If cdf2 and cdf1 1 are both 1, then tail is so extreme solution is one
+        pval[(cdf2 == 1) & (cdf1 == 1)] = 1
         pval = reverse_broadcast_from_k(pval, self.param_shape)
         return pval
             
@@ -295,7 +292,7 @@ class _nts():
         return mu, tau21, tau22, c1, c2, fix_mu, kwargs
 
 
-    def conf_int(self, x:np.ndarray, alpha:float=0.05, param_fixed:str='mu', **kwargs) -> np.ndarray:
+    def conf_int(self, x:np.ndarray, alpha:float=0.05, n_chunks:int=5, param_fixed:str='mu', **kwargs) -> np.ndarray:
         """
         Assume W ~ NTS()...
 
@@ -305,12 +302,14 @@ class _nts():
         ---------
         x:                      An array-like object of points that corresponds to dimensions of estimated means
         alpha:                  Type-1 error rate
-        param_fixed:            Which parameter are we doing inference on ('mu'==fix mu1==mu2, 'mu1', 'mu2')? 
+        param_fixed:            Which parameter are we doing inference on ('mu'==fix mu1==mu2, 'mu1', 'mu2')?
+        n_chunks:               How many roots to solve at a time? (default=5) 
         kwargs:                 For other valid kwargs, see sntn._solvers._conf_int (e.g. a_min/a_max)
         """
         # Make sure x is the right dimension
         x = try2array(x)
         x = broadcast_to_k(x, self.param_shape)
+
         # Storage for the named parameters what will go into class initialization (excluded param_fixed)
         di_dist_args = {}
         # param_fixed must be either mu1, mu2, or mu (mu1==mu2)
@@ -320,16 +319,15 @@ class _nts():
             param_fixed = 'mu1'  # Use mu1 for convenience
             assert self.fix_mu==True, 'if param_fixed="mu" then fix_mu==True'
             di_dist_args['mu2'] = None  # One parameter must be None with fix_mu=True, and since mu1 will be assigned every time, this is necessary
-            # x_mu1, x_mu2 = x, None
         elif param_fixed == 'mu1':
             param_fixed = 'mu1'
             di_dist_args['mu2'] = self.mu2
-            # x_mu1, x_mu2 = x/2, self.mu2
         else:
             param_fixed = 'mu2'
             di_dist_args['mu1'] = self.mu1
             # x_mu1, x_mu2 = self.mu1, x/2
-        # Set up solver
+
+        # Set up solver along with kwargs
         solver = conf_inf_solver(dist=_nts, param_theta=param_fixed, alpha=alpha, **get_valid_kwargs_cls(conf_inf_solver, **kwargs))
         # Assign the remainder of the parameter
         di_dist_args = {**di_dist_args, **{'tau21':self.tau21, 'tau22':self.tau22, 'a':self.a, 'b':self.b, 'c1':self.c1, 'c2':self.c2, 'fix_mu':self.fix_mu}}
@@ -341,24 +339,35 @@ class _nts():
         if 'verbose_iter' in kwargs:
             verbose_iter = kwargs['verbose_iter']
             assert isinstance(verbose_iter, int) and (verbose_iter > 0)
-        res = np.zeros(x.shape + (2,))
-        n_iter = x.shape[0]
-        # Determine kwargs that will be passed
+        if 'cdf_approach' in kwargs:
+            di_dist_args['cdf_approach'] = kwargs['cdf_approach']
+        # Set up solver kwargs
         kwargs_for_conf_int = get_valid_kwargs_method(solver, '_conf_int', **kwargs)
-        # Use x as the starting values
-        x0, x1 = x.copy(), x.copy()
-        # # Use naive quantile methods to estimate the lowerbound and the upperbound for starting points
-        # x0 = x + self.sigma1*norm.ppf(alpha)
-        # x1 = x + self.sigma1*norm.ppf(1-alpha)
-        # dist_ci = _nts(x_mu1, self.tau21, x_mu2, self.tau22, self.a, self.b, self.c1, self.c2, self.fix_mu)
-        # x0 = dist_ci.ppf(0.25, method='approx').reshape(x.shape)
-        # x1 = dist_ci.ppf(0.75, method='approx').reshape(x.shape)
-        for i in range(n_iter):
-            if verbose:
-                if (i+1) % verbose_iter == 0:
-                    print(f'Iteration {i+1} of {n_iter}')
-            res[i] = solver._conf_int(x=x[i], di_dist_args=di_dist_args, x0=x0[i], x1=x1[i], **kwargs_for_conf_int)
-        # res = solver._conf_int(x=x, di_dist_args=di_dist_args, **get_valid_kwargs_method(solver, '_conf_int', **kwargs))
+        
+        # Iterate over each parameter
+        res = np.zeros(x.shape + (2,))
+        n_x = x.shape[0]
+        n_iter = (n_x // n_chunks) + (n_x % n_chunks)
+        n_total = self.k*n_iter  # Total number of .cont_int calls
+        stime = time()
+        for i in range(self.k):
+            # Take the i'th parameter values
+            di_dist_args_i = {k:v[i] if isinstance(v, np.ndarray) else v for k,v in di_dist_args.items()}
+            x_i = np.take(x, i, -1)
+            # Loop over the n_iter rows of chunk
+            for j in range(n_iter):
+                start, stop = int(j*n_chunks), int((j+1)*n_chunks)
+                x_ij = x_i[start:stop]
+                ci_ij = solver._conf_int(x=x_ij, di_dist_args=di_dist_args_i, x0=x_ij, **kwargs_for_conf_int)
+                res[start:stop,...,i,:] = ci_ij
+                if verbose and ((j+1) % verbose_iter == 0):
+                    dtime = time() - stime
+                    n_comp = i*n_iter + (j+1)
+                    n_left = n_total - n_comp
+                    rate = n_comp / dtime
+                    seta = n_left / rate
+                    print(f'Parameter {i+1} of {self.k}, Iteration {j+1} of {n_iter}\n(ETA={seta:0.0f} seconds)')
+
+        # Return to original shape
         res = reverse_broadcast_from_k(res, self.param_shape,(2,))
-        # Return matrix of values
         return res

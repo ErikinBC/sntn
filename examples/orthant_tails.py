@@ -12,10 +12,26 @@ from scipy.stats import norm
 from sntn.dists import nts, bvn
 from sntn.utilities.grad import _log_gauss_approx
 
+
+"""
+Unstable CDF?
+"""
+
+x = 2.91940025
+tau21 = 1.12743604
+tau22 = 1.84161871
+a = 0.50008805
+b = 2.29270529
+mu_seq = np.arange(-17, 18)
+dist_nts = nts(mu_seq, tau21, None, tau22, a, b, fix_mu=True, cdf_approach='scipy')
+dist_nts.cdf(x)
+
+
 """
 Root finding problem happens because default of Owen's T does not always yield accurate estimates of BVN
 """
-x = 5.1526816029843125
+x = 0.51107317
+# x = 5.1526816029843125
 tau21 = 5.31504579
 tau22 = 1.33290728
 rho = np.sqrt(tau22) / np.sqrt(tau21 + tau22)
@@ -24,7 +40,7 @@ b = -2.09831269
 fix_mu = True
 
 npoints = 25
-mu_seq = np.linspace(8, 10, npoints)
+mu_seq = np.linspace(-5, 5, npoints)
 pval = np.zeros([npoints, 2])
 for i, mu in enumerate(mu_seq):
     dist_mu_scipy = nts(mu, tau21, None, tau22, a, b, fix_mu=True, cdf_approach='scipy')
@@ -33,7 +49,9 @@ for i, mu in enumerate(mu_seq):
     pval_mu_scipy = dist_mu_scipy.cdf(x)
     pval[i] = np.concatenate([pval_mu_scipy, pval_mu_owen])
 # Errors accross Owen's
-pd.DataFrame(pval, columns=['scipy','owen'],index=mu_seq).rename_axis('mu').diff()>0
+df = pd.DataFrame(pval, columns=['scipy','owen'],index=mu_seq)
+df
+df.rename_axis('mu').diff()>0
 
 m1 = (x - 2*mu_seq[13])/np.sqrt(tau21 + tau22)
 m2 = (x - 2*mu_seq[14])/np.sqrt(tau21 + tau22)

@@ -17,7 +17,7 @@ from parameters import seed
 from sntn.utilities.utils import try_except_breakpoint
 
 # Used for pytest
-params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),][1:2]
+params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
 params_alpha = [ (0.2), (0.1), (0.05) ]
 
 def gen_params(shape:tuple or list, seed:int or None) -> tuple:
@@ -36,8 +36,7 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 @pytest.mark.parametrize("shape", params_shape)
 @pytest.mark.parametrize("alpha", params_alpha)
-# @pytest.mark.parametrize("ndraw", [(25),(50),(250)])
-def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250) -> None:
+def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0.01, tol_xmu:float=0.3) -> None:
     """
     Checks that the confidence intervals cover the true parameter at the expected rate
     
@@ -46,53 +45,70 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250) -> None:
     shape:              The dimensions of the underlying parameters to take
 
     """
-    # Distribution to check p-value for coverage...
-    # shape, alpha, ndraw = params_shape[0], params_alpha[1], 100
-    print('Drawing data')
+    # Draw data
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
     dist_coverage = binom(n=int(ndraw*np.prod(shape)), p=1-alpha)
 
-    # (ii) Repeat for fixed means
+    # Assume fixed means
     np.random.seed(seed)
     idx_mu1 = np.random.rand(*mu1.shape) < 0.5
     mu = np.where(idx_mu1, mu1, mu2)
-    dist = nts(mu, tau21, None, tau22, a, b, fix_mu=True)
-    x = np.squeeze(dist.rvs(ndraw, seed))
+    dist_gt = nts(mu, tau21, None, tau22, a, b, fix_mu=True)
+    x = np.squeeze(dist_gt.rvs(ndraw, seed))
+    cdf_gt = dist_gt.cdf(x)
+    crit_lb = dist_gt.ppf(alpha/2)
+    crit_ub = dist_gt.ppf(1-alpha/2)
+
+
+    # Find the CIs
+    print(f'~~~ Finding CIs for target={1-alpha}, shape={str(shape)} ~~~')
     stime = time()
-    print('Finding CIs')
-    # breakpoint()
-    param_ci = dist.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=25)
+    dist_ci = nts(1, tau21, None, tau22, a, b, fix_mu=True)
+    param_ci = dist_ci.conf_int(x=x, alpha=alpha, param_fixed='mu', approach='root', verbose=True, verbose_iter=5, cdf_approach='scipy', n_chunks=10)
     dtime, nroot = time() - stime, int(np.prod(param_ci.shape))
     rate = nroot / dtime
-    print(f'Calculate {rate:.1f} roots per second (seconds={dtime:.0f}, roots={nroot})')
+    print(f'Calculated {rate:.1f} roots per second (seconds={dtime:.0f}, roots={nroot})')
     ci_lb, ci_ub = np.take(param_ci, 0, -1), np.take(param_ci, 1, -1)
-    # Have ground truth align with dimensions
+    
+    # Compare CIs to ground truth
     bcast_shape = np.broadcast_shapes(mu1.shape, ci_lb.shape)
     val_gt = np.broadcast_to(mu, bcast_shape)
-    mu_gt = np.broadcast_to(dist.mean(), bcast_shape)
+    mu_gt = np.broadcast_to(dist_gt.mean(), bcast_shape)
+    crit_lb = np.broadcast_to(crit_lb, bcast_shape)
+    crit_ub = np.broadcast_to(crit_ub, bcast_shape)
+    # Get the CDF of the x-values
     # Assign values flat
-    tmp_df = pd.DataFrame({'param':'mu', 'x':x.flat, 'lb':ci_lb.flat, 'ub':ci_ub.flat, 'gt':val_gt.flat, 'x_mu':mu_gt.flat})
+    tmp_df = pd.DataFrame({'param':'mu', 'x':x.flat, 'cdf':cdf_gt.flat, 'crit_lb':crit_lb.flat, 'crit_ub':crit_ub.flat, 'lb':ci_lb.flat, 'ub':ci_ub.flat, 'gt':val_gt.flat, 'x_mu':mu_gt.flat})
     # Make sure the means aligned
-    print(tmp_df.groupby('gt')[['x','x_mu']].mean().round(2))
-    # try_except_breakpoint((tmp_df.groupby('gt')[['x','x_mu']].mean().diff(axis=1)['x_mu'].abs() < 1).all(), f'Means were not within 0.1 of each other')
+    try_except_breakpoint((tmp_df.groupby('gt')[['x','x_mu']].mean().diff(axis=1)['x_mu'].abs() < tol_xmu).all(), f'Means were not within {tol_xmu} of each other')
+    
+    # Calculate the coverage probability
     tmp_df = tmp_df.assign(cover=lambda x: (x['lb'] <= x['gt']) & (x['ub'] >= x['gt']))
-    print(tmp_df.groupby('gt')['cover'].mean().round(2))
-    tmp_df = tmp_df.sort_values('x').reset_index(drop=True)
+    print(tmp_df.groupby('gt')['cover'].mean().round(2).reset_index().assign(target=1-alpha))
+    # tmp_df = tmp_df.sort_values('x').reset_index(drop=True)
     pval_mu = dist_coverage.cdf(tmp_df['cover'].sum())
     pval_mu = 2*min(pval_mu, 1-pval_mu)
     cover_mu = tmp_df['cover'].mean()
-    # try_except_breakpoint(pval_mu > 0.05, 'Coverage did not match expected level')
-    print(f'~~~ target={1-alpha}, shape={str(shape)}, coverage={100*cover_mu:.1f}%, pval={100*pval_mu:.1f}% ~~~')
+    try_except_breakpoint(pval_mu > tol_type1, f'Prob of coverage being expected level was less than {tol_type1}')
+    print(f'~~~ coverage={100*cover_mu:.1f}%, pval={100*pval_mu:.1f}% ~~~')
     
-    # # Find the actual alpha/2, 1-alpha/2 quantile values, and confirm that coverage fails ONLY outside them
-    # from scipy.optimize import root
-    # x_lb = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
-    # x_ub = root(fun=lambda w, mu, tau21, tau22, a, b, alpha: nts(mu, tau21, None, tau22, a, b, fix_mu=True).cdf(w)-1 + alpha/2, x0=1,args=(mu, tau21, tau22, a, b, alpha)).x[0]
-    # assert not tmp_df.query('x < @x_lb').cover.any()
-    # assert not tmp_df.query('x > @x_ub').cover.any()
-    # assert tmp_df.query('(x <= @x_ub) & (x >= @x_lb)').cover.all()
+    # Ensure that the areas that fail coverage align with expected quantiles of x (due to monotonicty)
+    cdf_gt_pos = tmp_df.loc[tmp_df['cover'],'cdf']
+    cdf_gt_neg = tmp_df.loc[~tmp_df['cover'],'cdf']
+    mx_pval_neg = np.max(np.minimum(1-cdf_gt_neg, cdf_gt_neg))
+    assert mx_pval_neg < alpha/2, f'Expected max GT pvalue to be less than {alpha/2}: {mx_pval_neg}'
+    mi_pval_pos = np.min(cdf_gt_pos)
+    mx_pval_pos = np.max(cdf_gt_pos)
+    assert mi_pval_pos >= alpha/2, f'Minimum p-values for covered params should be at least {alpha/2}: {mi_pval_neg}'
+    assert mx_pval_pos <= 1-alpha/2, f'Maximum p-values for covered params should be at most {1-alpha/2}: {mx_pval_neg}'
 
-    # # (i) For different means
+    # Repeat for the "critical" value (should have 1:1 mapping with p-values)    
+    cn_crit = ['cover','x','crit_lb','crit_ub']
+    tmp_crit = tmp_df[cn_crit].assign(reject=lambda z: (z['x'] < z['crit_lb']) | (z['x'] > z['crit_ub']))
+    tmp_crit = tmp_crit.assign(check=lambda x: x['cover'] != x['reject'])
+    assert tmp_crit['check'].all(), 'Expected critical values to be aligned with coverage to be aligned with p-values'
+
+    # # Repeat experiments for different means
     # dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2, fix_mu=False)
     # x = dist.rvs(ndraw)
     # # Generate CI for mu{12}

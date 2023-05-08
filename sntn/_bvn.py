@@ -50,6 +50,8 @@ class _bvn():
 
         """
         # Process inputs
+        if isinstance(cdf_approach, np.ndarray):
+            cdf_approach = str(cdf_approach.flat[0])  # Assume it was broadcasted
         mu1, sigma21, mu2, sigma22, rho = broastcast_max_shape(mu1, sigma21, mu2, sigma22, rho)
         # Input checks
         assert np.all((rho >= -1) & (rho <= +1)), 'rho needs to be b/w [-1,+1]'
