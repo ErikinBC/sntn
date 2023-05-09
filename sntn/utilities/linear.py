@@ -3,10 +3,11 @@ Utility scripts for simulations
 """
 # Load modules
 import numpy as np
+from math import isclose
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
 # Load internal modules
-from utilities.utils import check_all_is_type, check_all_pos
+from sntn.utilities.utils import check_all_is_type, check_all_pos, cvec
 
 class ols():
     """Ordinary least squares: model class wrapper
@@ -60,7 +61,7 @@ class ols():
         self.ub = self.bhat + cv*self.se
 
 
-def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndarray=1, intercept:float or int=0, snr:float or int=1, seed:int=1, normalize:bool=True) -> tuple[np.ndarray, np.ndarray]:
+def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndarray=None, intercept:float or int=0, snr:float or int=1, seed:int=1, return_params:bool=False) -> tuple[np.ndarray, np.ndarray]:
     """Data generating process for simple gaussian-noise regression, where the columns are x are statistically independent
     
     Parameters
@@ -72,7 +73,7 @@ def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndar
     intercept:          Whether an intercept should be added to X'beta
     snr:                Signal to nosie ratio, this will automatically lead to a certain sigma2 (default=1)
     seed:               Reproducability seed (default=1)
-    normalize:          Whether the design matrix should be normalized after creation (default=1)
+    return_params:      Whether beta,intercept should be returned as well
 
     Returns
     -------
@@ -81,24 +82,31 @@ def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndar
     # Input checks
     check_all_pos(n, p, snr, strict=True)
     check_all_pos(s, seed, strict=False)
-    assert isinstance(normalize, bool), 'normalize needs to be a boolean'
+    assert isinstance(return_params, bool), 'return_params needs to be a boolean'
     assert s <= p, 's cannot be larger than p'
     # Set up parameters
-    if not isinstance(beta, np.ndarray):
-        beta = np.repeat(beta, p)
-    var_exp = np.sum(beta**2)
-    sig2 = 1
-    if var_exp > 0:
-        sig2 =  var_exp / snr
+    beta0 = np.zeros(p)
+    if isinstance(beta, np.ndarray):
+        assert beta.shape == (p, ), f'if beta is manually assigned, must be a ({p},) array'
+        beta0 = beta.copy()
+    elif isinstance(beta, float) or isinstance(beta, int):
+        # User has specified the non-sparse coefficients
+        beta0[:s] = beta
+    else:
+        # Calculate the beta needed to get a certain signal to noise ratio (based on sigma2=1)
+        beta0[:s] = np.sqrt(snr / s)
+        assert isclose(np.sum(beta0**2), snr), 'snr did not align with expectation'
     # Generate data
     np.random.seed(seed)
     x = np.random.randn(n,p)
-    if normalize:
-        x = (x - x.mean(0)) / x.std(0,ddof=1)
-    u = np.sqrt(sig2)*np.random.randn(n)
-    eta = x.dot(beta)
+    x = (x - x.mean(0)) / x.std(0,ddof=1)  # Normalize
+    u = np.random.randn(n)
+    eta = x.dot(cvec(beta0)).flatten()
     y = intercept + eta + u
-    return y, x
+    if return_params:
+        return y, x, intercept, beta0
+    else:
+        return y, x
 
 
 
