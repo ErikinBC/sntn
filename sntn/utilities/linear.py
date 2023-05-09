@@ -29,10 +29,10 @@ class ols():
     lb:             (p,) lower bounds of the CIs
     ub:             (p,) upper bounds of the CIs
     """
-    def __init__(self, y:np.ndarray, x:np.ndarray, sigma2:None or float=None, has_int:bool=True, alpha:float=0.05) -> True:
+    def __init__(self, y:np.ndarray, x:np.ndarray, sigma2:None or float=None, has_int:bool=True, alpha:float=0.05, sig2:float or None=None) -> True:
         # Input checks
         if sigma2 is not None:
-            check_all_is_type(sigma2, [float, int])
+            check_all_is_type(sigma2, dtype=[float, int])
             check_all_pos(sigma2, strict=True)
         # Fit model with sklearn
         self.linreg = LinearRegression(fit_intercept=has_int)
@@ -49,10 +49,10 @@ class ols():
         if has_int:
             self.bhat = np.append(np.array([self.linreg.intercept_]),self.bhat)
             iX = np.c_[np.repeat(1,self.n), x]
-            gram = np.linalg.inv(iX.T.dot(iX))
+            self.igram = np.linalg.inv(iX.T.dot(iX))
         else:
-            gram = np.linalg.inv(x.T.dot(x))
-        self.covar = self.sig2hat * gram
+            self.igram = np.linalg.inv(x.T.dot(x))        
+        self.covar = self.sig2hat * self.igram
         self.se = np.sqrt(np.diagonal(self.covar))
         self.z = self.bhat / self.se
         # Calculate CIs
@@ -61,7 +61,12 @@ class ols():
         self.ub = self.bhat + cv*self.se
 
 
-def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndarray=None, intercept:float or int=0, snr:float or int=1, seed:int=1, return_params:bool=False) -> tuple[np.ndarray, np.ndarray]:
+    def predict(self, x:np.ndarray) -> np.ndarray:
+        """Wrapper for LinearRegression().predict()"""
+        return self.linreg.predict(x)
+
+
+def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndarray=None, intercept:float or int=0, snr:float or int=1, seed:int or None=1, return_params:bool=False) -> tuple[np.ndarray, np.ndarray]:
     """Data generating process for simple gaussian-noise regression, where the columns are x are statistically independent
     
     Parameters
@@ -81,7 +86,7 @@ def dgp_sparse_yX(n:int, p:int, s:int or None=None, beta:float or int or np.ndar
     """
     # Input checks
     check_all_pos(n, p, snr, strict=True)
-    check_all_pos(s, seed, strict=False)
+    check_all_pos(s, strict=False)
     assert isinstance(return_params, bool), 'return_params needs to be a boolean'
     assert s <= p, 's cannot be larger than p'
     # Set up parameters

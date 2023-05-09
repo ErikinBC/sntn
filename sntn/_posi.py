@@ -5,12 +5,13 @@ Workhorse classes for doing marginal screening (posi_marginal_screen) and Lasso 
 # External
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 # Internal
 from sntn.dists import tnorm, nts
-from sntn.utilities.utils import cvec
 from sntn.utilities.linear import ols
+from sntn.utilities.utils import cvec, get_valid_kwargs_cls
 
 
 class _data_carve():
@@ -42,6 +43,7 @@ class _data_carve():
         self.normalize = True
         self.frac_carve = frac_carve
         self.has_int = True
+        self.seed = seed
 
         # Process response and covariates
         self.cn = None
@@ -64,7 +66,7 @@ class _data_carve():
             n_carve = int(np.floor(self.n * self.frac_carve))
             n_screen = self.n - n_carve
             # Select rows to be used for data carving
-            np.random.seed(seed)
+            np.random.seed(self.seed)
             self.ridx_carve = np.random.choice(self.n, n_carve, replace=False)
             self.ridx_screen = np.setdiff1d(self.ridx_screen, self.ridx_carve)
         # Assign the screening arrays
@@ -75,8 +77,9 @@ class _data_carve():
 
         # Normalize the matrices if requested
         if normalize:
-            self.x_carve = self.normalize_mat(self.x_carve)
             self.x_screen = self.normalize_mat(self.x_screen)
+            if self.frac_carve > 0:
+                self.x_carve = self.normalize_mat(self.x_carve)
 
     @staticmethod
     def normalize_mat(mat:np.ndarray) -> np.ndarray:
@@ -86,7 +89,7 @@ class _data_carve():
 
 class _posi_marginal_screen(_data_carve):
     def __init__(self, k:int, y:np.ndarray, x:np.ndarray, **kwargs):
-        super().__init__(y, x, **kwargs)
+        super().__init__(y, x, **get_valid_kwargs_cls(_data_carve, **kwargs))
         """
         Carries out selective inference for a marginal screening proceedure (i.e. top-k correlated features)
 
@@ -95,7 +98,7 @@ class _posi_marginal_screen(_data_carve):
         k:                  Number of top covariates to pick
         y:                  (n,) array of responses
         x:                  (n,p) array of covariates
-        **kwargs:           See _data_carve
+        **kwargs:           Passed into _data_carve(**kwargs) and ols(**kwargs)
 
 
         Methods
@@ -112,16 +115,53 @@ class _posi_marginal_screen(_data_carve):
         beta_screen = pd.Series(np.abs(self.x_screen.T.dot(self.y_screen)))
         beta_screen = beta_screen.sort_values(ascending=False)
         self.cidx_screen = beta_screen.head(self.k).index.to_list()
-        breakpoint()
+
+        # Fit an OLS model on the screened and carved portion of the data
+        ols_kwargs = get_valid_kwargs_cls(ols, **kwargs)
+        self.ols_screen = ols(self.y_screen, self.x_screen[:,self.cidx_screen], **ols_kwargs)
+        if self.frac_carve > 0:
+            self.ols_carve = ols(self.y_carve, self.x_carve[:,self.cidx_screen], **ols_kwargs)
+
+
+    def estimate_sigma2(self, num_folds:int=5) -> None:
+        """
+        Estimates the variance of residual of the marginally screened model. For the screened portion of the data, this amounts to doing k-fold CV
+
+        Parameters
+        ==========
+        num_folds:                  How many folds of CV to use (note that seed will be inherited from construction)
+
+        Attributes
+        ==========
+        sig2hat:                    Weighted average of the (unbiased) carved estimate + CV-based screening
+        se_bhat_screen:             Standard error of the beta coefficients using sig2hat for the screened estimate
+        se_bhat_carve:              Standard error of the beta coefficients using sig2hat for the carved estimate (if frac_carve>0)
+        """
+        # Estimate the variance using K-Fold CV
+        folder = KFold(n_splits=num_folds, shuffle=True, random_state=self.seed)
+        y_hat = np.zeros(self.y_screen.shape)
+        for ridx, tidx in folder.split(self.x_screen):
+            x_train, x_test = self.x_screen[ridx], self.x_screen[tidx]
+            y_train, y_test = self.y_screen[ridx], self.y_screen[tidx]
+            tmp_model = self.__class__(k=self.k, y=y_train, x=x_train, frac_carve=0.0)
+            y_hat[tidx] = tmp_model.ols_screen.predict(x_test[:,tmp_model.cidx_screen])
+        sig2hat_screen = np.mean((self.y_screen - y_hat)**2)
+        
+        # If carving exists, use it
+        sig2hat_carve = 0
+        if self.frac_carve > 0:
+            sig2hat_carve = self.ols_carve.sig2hat
+        
+        # Use data-weighted final value
+        self.sig2hat = (1-self.frac_carve)*sig2hat_screen + self.frac_carve*sig2hat_carve
+        
+        # Calculate the se(beta) using the variance
+        self.se_bhat_screen = np.sqrt(self.sig2hat * self.ols_screen.igram.diagonal())
+        self.se_bhat_carve = np.zeros(self.se_bhat_screen.shape)
+        if self.frac_carve > 0:
+            self.se_bhat_carve = np.sqrt(self.sig2hat * self.ols_carve.igram.diagonal())
         
 
-
-    def estimate_sigma2(self) -> None:
-        """Words"""
-        if self.frac_carve > 0:
-            1
-
-    
     def run_inference(self, alpha:float=0.1, null_beta:float=0, sigma2:float or None=None) -> pd.DataFrame:
         """
         Carries out inferences...
@@ -141,12 +181,3 @@ class _posi_marginal_screen(_data_carve):
         return None
         
 
-n, p = 50, 100
-b0, s,  = -1, 5
-snr = 2
-from sntn.utilities.linear import dgp_sparse_yX
-y, x, beta0, beta1 = dgp_sparse_yX(n, p, s, intercept=b0, snr=snr, return_params=True)
-
-# Initialize
-k = 5
-screener = _posi_marginal_screen(k, y, x)
