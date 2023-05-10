@@ -41,10 +41,11 @@ class _posi_marginal_screen(_carve_yx):
         self.k = k
 
         # Use the "screening" portion of the data to find the top-K coefficients
-        beta_screen = pd.Series(np.abs(self.x_screen.T.dot(self.y_screen)))
-        beta_screen = beta_screen.sort_values(ascending=False)
-        self.cidx_screen = beta_screen.head(self.k).index.to_list()
-
+        z = self.x_screen.T.dot(self.y_screen)
+        self.s = np.sign(z)
+        self.order = pd.Series(np.abs(z)).sort_values().index.to_list()
+        self.cidx_screen = self.order[-self.k:]
+        
         # Fit an OLS model on the screened and carved portion of the data
         ols_kwargs = get_valid_kwargs_cls(ols, **kwargs)
         self.ols_screen = ols(self.y_screen, self.x_screen[:,self.cidx_screen], **ols_kwargs)
@@ -90,6 +91,28 @@ class _posi_marginal_screen(_carve_yx):
         if self.frac_carve > 0:
             self.se_bhat_carve = np.sqrt(self.sig2hat * self.ols_carve.igram.diagonal())
         
+
+    def get_A(self) -> None:
+        """
+        Calculates the A from Ay <= b for the marginal screening proceedure
+        
+        Methods
+        =======
+        mat_A:          A (2*k*(p-k), n) matrix
+        """
+        # Create a (p,p) Identity matrix and remove the "selected" column rows
+        partial = np.identity(self.p)[self.order[:-self.k]]
+        partial = np.vstack([partial, -partial])  # (2*(p-k),p) matrix
+        n_partial = partial.shape[0]
+        # For each screened variable, another partial matrix will be added
+        self.mat_A = np.zeros([partial.shape[0]*self.k, self.x_screen.shape[0]])
+        for i, cidx in enumerate(self.cidx_screen[::-1]):
+            partial_cp = partial.copy()
+            partial_cp[:,cidx] = -self.s[cidx]
+            start, stop = int(i*n_partial), int((i+1)*n_partial)
+            self.mat_A[start:stop] = np.dot(partial_cp, self.x_screen.T)
+        
+
 
     def run_inference(self, alpha:float or np.ndarray=0.1, null_beta:float or np.ndarray=0, sigma2:float or None=None) -> pd.DataFrame:
         """

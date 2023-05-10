@@ -43,7 +43,12 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
         if (i+1) % 250 == 0:
             print(f'Simulation {i+1} of {nsim}')
         y, x, beta0, beta1 = dgp_sparse_yX(n, p, s, intercept=b0, snr=snr, return_params=True, seed=i)
+
+        
+        # Run the screen
         screener = marginal_screen(k, y, x, seed=i)
+        # Get the constraints
+        screener.get_A()
         
         # Extract the coefficients
         beta_screen_i = screener.ols_screen.bhat[1:]
