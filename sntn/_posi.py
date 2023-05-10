@@ -5,13 +5,14 @@ Workhorse classes for doing marginal screening (posi_marginal_screen) and Lasso 
 # External
 import numpy as np
 import pandas as pd
+from math import isclose
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
 # Internal
 from sntn.dists import tnorm, nts
 from sntn._carve import _carve_yx
 from sntn.utilities.linear import ols
-from sntn.utilities.utils import get_valid_kwargs_cls
+from sntn.utilities.utils import get_valid_kwargs_cls, cvec, rvec
 
 
 class _posi_marginal_screen(_carve_yx):
@@ -114,7 +115,7 @@ class _posi_marginal_screen(_carve_yx):
         
 
 
-    def run_inference(self, alpha:float or np.ndarray=0.1, null_beta:float or np.ndarray=0, sigma2:float or None=None) -> pd.DataFrame:
+    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None) -> pd.DataFrame:
         """
         Carries out inferences...
         
@@ -128,9 +129,8 @@ class _posi_marginal_screen(_carve_yx):
         ==========
         """
         # -- (i) Input checks -- #
-        assert isinstance(alpha, float) or isinstance(alpha, np.ndarray), 'alpha must be a float or array'
-        alpha = np.atleast_1d(alpha)
-        assert np.all( (alpha > 0) & (alpha < 1) ), 'alpha must strictly be between (0,1)'
+        assert isinstance(alpha, float), 'alpha must be a float'
+        assert (alpha > 0) & (alpha < 1), 'alpha must strictly be between (0,1)'
         assert isinstance(null_beta, float) or isinstance(null_beta, int) or isinstance(null_beta, np.ndarray), 'null_beta must be a float/int/array'
         # Broadcast null_beta to match k
         if isinstance(null_beta, float) or isinstance(null_beta, int):
@@ -147,14 +147,37 @@ class _posi_marginal_screen(_carve_yx):
         # -- (ii) Calculate truncated normal for screened distributioun -- #
         # See Lee (2014) for derivations of key terms
         x_s = self.x_screen[:,self.cidx_screen]
-        A = None
-        eta = np.linalg.inv(x_s.T.dot(x_s)).dot(x_s.T)  # (p, n) matrix
-        Sigma = sigma2 * eta.T.dot(eta)  # Assume y ~ N(mu, sig2*I_n)
-        alpha = A.dot(Sigma).dot(eta)
-        breakpoint()
-
-
-        # self.dist_screen = tnorm(mu=,sigma2=,a=,b=)
+        assert all([isclose(xmu,0) for xmu in x_s.mean(0)]), 'Expected x_s to be de-meaned'
+        # eta: The direction column span of x to be tested (k,n)
+        idx_int = int(self.ols_screen.has_int)
+        bhat_S = self.ols_screen.bhat[idx_int:]
+        eta = np.dot(self.ols_screen.igram[idx_int:,idx_int:], x_s.T)
+        # see Eq. 6 (note that sigma2 should cancel out)
+        alph_num = sigma2 * np.dot(self.mat_A, eta.T)
+        alph_den = sigma2 * np.sum(eta**2, axis=1)
+        # A (q,k) array, where q is the number of constraints for each of the k dimensions being tested
+        alph = alph_num / alph_den
+        # mat_A is a (q,n) set of constaints on each of the dimensions of y
+        # Ay is a (q,1) array, it is independent of the k coordinates
+        Ay = np.dot(self.mat_A, cvec(self.y_screen))
+        # For each column, find the alph's that are negative and apply Eq. 7, the alph's the are positive and apply Eq. 8
+        ratio = -Ay/alph + rvec(bhat_S)  # alph_j*beta_j/alph_j = beta_j
+        assert ratio.shape == alph.shape, 'ratio and alph should be the same shape'
+        # Indexes are w.r.t to alph's
+        v_neg = np.max(np.where(alph < 0, ratio, -np.inf), axis=0)
+        v_pos = np.min(np.where(alph > 0, ratio, +np.inf), axis=0)
+        assert np.all(v_pos > v_neg), 'expected pos to be larger than neg'
+        
+        # Create a dataframe with the truncnorm distribution
+        self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'x':bhat_S, 'a':v_neg, 'b':v_pos, 'sig2':alph_den})
+        self.dist_screen = tnorm(null_beta, alph_den, v_neg, v_pos)
+        # Add on the p-values and conf-int's
+        pval = self.dist_screen.cdf(bhat_S)
+        pval = 2*np.minimum(pval, 1-pval)
+        self.res_screen['pval'] = pval
+        ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
+        self.res_screen['ci_lb'] = ci_lbub[:,0]
+        self.res_screen['ci_ub'] = ci_lbub[:,1]
 
         # self.dist_carve = None
         # if self.frac_carve > 0:

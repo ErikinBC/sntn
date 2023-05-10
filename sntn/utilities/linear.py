@@ -31,6 +31,8 @@ class ols():
     """
     def __init__(self, y:np.ndarray, x:np.ndarray, sigma2:None or float=None, has_int:bool=True, alpha:float=0.05, sig2:float or None=None) -> True:
         # Input checks
+        assert isinstance(has_int, bool), 'has_int must be a bool'
+        self.has_int = has_int
         if sigma2 is not None:
             check_all_is_type(sigma2, dtype=[float, int])
             check_all_pos(sigma2, strict=True)

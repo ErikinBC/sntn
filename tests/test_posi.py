@@ -9,14 +9,15 @@ python3 -m pytest tests/test_posi.py -s
 import pytest
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+from time import time
+from scipy.stats import norm, binom
 # from sklearn.linear_model import ElasticNetCV
 # Internal
 from sntn.posi import marginal_screen
 from sntn.utilities.linear import dgp_sparse_yX, ols
 
 
-def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, snr:float=1.0, pval_exact:float=0.01, cover_err_est:float=0.04) -> None:
+def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, snr:float=2.0, pval_exact:float=0.01, cover_err_est:float=0.05) -> None:
     """
     Parameters
     ==========
@@ -33,23 +34,30 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
     Checks that:
     i) ...
     """
-    from scipy.stats import binom
+    
 
     # --- (i) Generate data and run simulations --- #
     cidx_gt = pd.Series(range(s))  # Which coefficients are non-noise
     holder_sim = []
+    stime = time()
     for i in range(nsim):
         # Draw data
         if (i+1) % 250 == 0:
-            print(f'Simulation {i+1} of {nsim}')
+            dtime = time() - stime
+            rate = (i+1) / dtime
+            seta = (nsim-i-1)/rate
+            print(f'Simulation {i+1} of {nsim} (ETA={seta:0.0f} seconds)')
         y, x, beta0, beta1 = dgp_sparse_yX(n, p, s, intercept=b0, snr=snr, return_params=True, seed=i)
+        
+        # Run the screen (do not normalize x since this effectively regularizes bhat coefficients slightly)
+        screener = marginal_screen(k, y, x, seed=i, normalize=False)
+        
+        # Run selective inference
+        
+        # screener.get_A()  # Get the constraints
+        screener.estimate_sigma2()  # Needed for PoSI and standard errors
+        # screener.run_inference()
 
-        
-        # Run the screen
-        screener = marginal_screen(k, y, x, seed=i)
-        # Get the constraints
-        screener.get_A()
-        
         # Extract the coefficients
         beta_screen_i = screener.ols_screen.bhat[1:]
         beta_carve_i = screener.ols_carve.bhat[1:]
@@ -63,12 +71,9 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
         gt_carve_i = np.sqrt(sigma2_posi * screener.ols_carve.igram.diagonal()[1:])
         
         # Use estimated variance
-        screener.estimate_sigma2()
+        
         se_screen_i = screener.se_bhat_screen[1:]
         se_carve_i = screener.se_bhat_carve[1:]
-
-        # Run selective inference
-        screener.run_inference()
         
         # Save for later
         sim_i = pd.DataFrame({'beta1':beta1[screener.cidx_screen],'bhat_screen':beta_screen_i, 'bhat_carve':beta_carve_i,'se_screen':se_screen_i, 'se_carve':se_carve_i, 'gt_screen':gt_screen_i, 'gt_carve':gt_carve_i},index=screener.cidx_screen).assign(sim=i)

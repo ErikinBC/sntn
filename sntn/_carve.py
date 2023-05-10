@@ -36,9 +36,9 @@ class _carve_yx():
         assert isinstance(frac_carve, float), 'frac_carve needs to be a float'
         assert (frac_carve >= 0) and (frac_carve < 1), 'frac_carve must be between [0,1)'
         assert isinstance(has_int, bool), 'has_int must be a bool'
-        self.normalize = True
+        self.normalize = normalize
         self.frac_carve = frac_carve
-        self.has_int = True
+        self.has_int = has_int
         self.seed = seed
 
         # Process response and covariates
