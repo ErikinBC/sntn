@@ -6,90 +6,17 @@ Workhorse classes for doing marginal screening (posi_marginal_screen) and Lasso 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 # Internal
 from sntn.dists import tnorm, nts
+from sntn._carve import _carve_yx
 from sntn.utilities.linear import ols
-from sntn.utilities.utils import cvec, get_valid_kwargs_cls
+from sntn.utilities.utils import get_valid_kwargs_cls
 
 
-class _data_carve():
-    def __init__(self, y:np.ndarray, x:np.ndarray, frac_carve:float=0.5, seed:int or None=None, normalize:bool=True, has_int:bool=True) -> None:
-        """
-        Class which
-
-        Parameters
-        ==========
-        y:                  (n,) array of responses
-        x:                  (n,p) array of covariates
-        frac_carve:         What percent of the data should be used for data carving? (0==no carving, ->1 all inference (noisy selection))? If frac_carve >0, it must have at least p+2 observations
-        normalize:          Whether X should be normalized (defaul=True)
-        has_int:            Whether an intercept should be fit for the OLS model (default=True)
-        
-        Attributes
-        ==========
-        {y, x, frac_carv, normalize, has_int}
-        ridx_carve:          Which rows will be used for carving?
-        ridx_screen:         Which rows will be used for screening?
-
-        """
-                # Input checks
-        assert len(y) == len(x), 'length of y and x do not align'
-        assert isinstance(normalize, bool), 'normalize needs to be a bool'
-        assert isinstance(frac_carve, float), 'frac_carve needs to be a float'
-        assert (frac_carve >= 0) and (frac_carve < 1), 'frac_carve must be between [0,1)'
-        assert isinstance(has_int, bool), 'has_int must be a bool'
-        self.normalize = True
-        self.frac_carve = frac_carve
-        self.has_int = True
-        self.seed = seed
-
-        # Process response and covariates
-        self.cn = None
-        if isinstance(x, pd.DataFrame):
-            self.cn = x.columns
-            x = np.asarray(x)
-        else:
-            x = cvec(x)
-            self.cn = [f'x{i+1}' for i in range(x.shape[1])]
-        assert len(x.shape) == 2, 'Expected x to be (n,p)'
-        y = np.asarray(y)
-        self.n, self.p = x.shape
-        self.enc_x = None
-        
-        # Split the data for data carving
-        self.ridx_carve = np.array([], dtype=int)
-        self.x_carve, self.y_carve = self.ridx_carve.copy(), self.ridx_carve.copy()
-        self.ridx_screen = np.arange(self.n)
-        if self.frac_carve > 0:
-            n_carve = int(np.floor(self.n * self.frac_carve))
-            n_screen = self.n - n_carve
-            # Select rows to be used for data carving
-            np.random.seed(self.seed)
-            self.ridx_carve = np.random.choice(self.n, n_carve, replace=False)
-            self.ridx_screen = np.setdiff1d(self.ridx_screen, self.ridx_carve)
-        # Assign the screening arrays
-        self.x_carve = x[self.ridx_carve]
-        self.x_screen = x[self.ridx_screen]
-        self.y_carve = y[self.ridx_carve]
-        self.y_screen = y[self.ridx_screen]
-
-        # Normalize the matrices if requested
-        if normalize:
-            self.x_screen = self.normalize_mat(self.x_screen)
-            if self.frac_carve > 0:
-                self.x_carve = self.normalize_mat(self.x_carve)
-
-    @staticmethod
-    def normalize_mat(mat:np.ndarray) -> np.ndarray:
-        return StandardScaler().fit_transform(mat)
-
-
-
-class _posi_marginal_screen(_data_carve):
+class _posi_marginal_screen(_carve_yx):
     def __init__(self, k:int, y:np.ndarray, x:np.ndarray, **kwargs):
-        super().__init__(y, x, **get_valid_kwargs_cls(_data_carve, **kwargs))
+        super().__init__(y, x, **get_valid_kwargs_cls(_carve_yx, **kwargs))
         """
         Carries out selective inference for a marginal screening proceedure (i.e. top-k correlated features)
 
@@ -98,7 +25,7 @@ class _posi_marginal_screen(_data_carve):
         k:                  Number of top covariates to pick
         y:                  (n,) array of responses
         x:                  (n,p) array of covariates
-        **kwargs:           Passed into _data_carve(**kwargs) and ols(**kwargs)
+        **kwargs:           Passed into _carve_yx(**kwargs) and ols(**kwargs)
 
 
         Methods
@@ -108,7 +35,9 @@ class _posi_marginal_screen(_data_carve):
         """
         # Input checks
         assert isinstance(k, int) and (k > 0), 'k must be an int that is greater than zero'
-        assert k < self.p, f'For screening to be relevant, k must be less than {self.p}'
+        rank = min(self.p, self.x_screen.shape[0])
+        assert k < rank, f'For screening to be relevant, k must be less than the rank {rank} (min(n,p))'
+
         self.k = k
 
         # Use the "screening" portion of the data to find the top-K coefficients
@@ -162,7 +91,7 @@ class _posi_marginal_screen(_data_carve):
             self.se_bhat_carve = np.sqrt(self.sig2hat * self.ols_carve.igram.diagonal())
         
 
-    def run_inference(self, alpha:float=0.1, null_beta:float=0, sigma2:float or None=None) -> pd.DataFrame:
+    def run_inference(self, alpha:float or np.ndarray=0.1, null_beta:float or np.ndarray=0, sigma2:float or None=None) -> pd.DataFrame:
         """
         Carries out inferences...
         
@@ -171,13 +100,42 @@ class _posi_marginal_screen(_data_carve):
         alpha:                  The type-I error rate
         null_beta:              The null hypothesis (default=0)
         sigma2:                 If estimate_sigma2() has not been run, user must specify the value
+
+        Attributes
+        ==========
         """
+        # -- (i) Input checks -- #
+        assert isinstance(alpha, float) or isinstance(alpha, np.ndarray), 'alpha must be a float or array'
+        alpha = np.atleast_1d(alpha)
+        assert np.all( (alpha > 0) & (alpha < 1) ), 'alpha must strictly be between (0,1)'
+        assert isinstance(null_beta, float) or isinstance(null_beta, int) or isinstance(null_beta, np.ndarray), 'null_beta must be a float/int/array'
+        # Broadcast null_beta to match k
+        if isinstance(null_beta, float) or isinstance(null_beta, int):
+            null_beta = np.repeat(null_beta, self.k)
+        if not isinstance(null_beta, np.ndarray):
+            null_beta = np.asarray(null_beta)
+        assert null_beta.shape[0] == self.k, f'Length of null_beta must '
         if sigma2 is None:
-            assert hasattr(self, 'sigma2'), 'if sigma2 is not specified, run estimate_sigma2 first'
-            sigma2 = getattr(self, sigma2)
-        if self.frac_carve == 0:
-            dist
-            tnorm(mu, sigma2, a, b)
-        return None
+            assert hasattr(self, 'sig2hat'), 'if sigma2 is not specified, run estimate_sigma2 first'
+            sigma2 = getattr(self, 'sig2hat')
+        assert isinstance(sigma2, float), 'sigma2 must be a float'
+
+        
+        # -- (ii) Calculate truncated normal for screened distributioun -- #
+        # See Lee (2014) for derivations of key terms
+        x_s = self.x_screen[:,self.cidx_screen]
+        A = None
+        eta = np.linalg.inv(x_s.T.dot(x_s)).dot(x_s.T)  # (p, n) matrix
+        Sigma = sigma2 * eta.T.dot(eta)  # Assume y ~ N(mu, sig2*I_n)
+        alpha = A.dot(Sigma).dot(eta)
+        breakpoint()
+
+
+        # self.dist_screen = tnorm(mu=,sigma2=,a=,b=)
+
+        # self.dist_carve = None
+        # if self.frac_carve > 0:
+        #     self.dist_carve = nts(mu1=,tau21=,mu2=,tau22=,a=,b=,)
+        
         
 

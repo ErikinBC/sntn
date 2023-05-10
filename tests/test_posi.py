@@ -16,7 +16,7 @@ from sntn.posi import marginal_screen
 from sntn.utilities.linear import dgp_sparse_yX, ols
 
 
-def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, snr:float=1.0, pval_exact:float=0.05, cover_err_est:float=0.04, tol_exact:float=1e-3, tol_approx:float=1e-3 ) -> None:
+def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, snr:float=1.0, pval_exact:float=0.01, cover_err_est:float=0.04) -> None:
     """
     Parameters
     ==========
@@ -27,9 +27,9 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
     s:                  Number of covariates with actual signal
     b0:                 Intercept of the response vector
     snr:                The signal to noise ratio = sum_{j=1}^{s} b_j^2
-    tol_exact:          For the "exact" distributions, how close should actual p-value be to theoretical
-    tol_approx:         For the "approximate" distributions, how close should actual p-value be to theoretical
-
+    pval_exact:         When looking at the distribution of the null when all params are known, what is the maximum p-value we will allow before rejection?
+    cover_err_est:      When there are nuissance parameters, what is the coverage buffer we will permit?
+    
     Checks that:
     i) ...
     """
@@ -61,6 +61,9 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
         screener.estimate_sigma2()
         se_screen_i = screener.se_bhat_screen[1:]
         se_carve_i = screener.se_bhat_carve[1:]
+
+        # Run selective inference
+        screener.run_inference()
         
         # Save for later
         sim_i = pd.DataFrame({'beta1':beta1[screener.cidx_screen],'bhat_screen':beta_screen_i, 'bhat_carve':beta_carve_i,'se_screen':se_screen_i, 'se_carve':se_carve_i, 'gt_screen':gt_screen_i, 'gt_carve':gt_carve_i},index=screener.cidx_screen).assign(sim=i)
@@ -84,8 +87,7 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
     res_sim['sigma2'] = res_sim['sigma2'].str.replace('z_','',regex=False)
     res_sim = res_sim.assign(pval=lambda x: 2*norm.cdf(-x['z_null'].abs()))
         
-    # --- (iii) Check p-values (carved) --- #
-    p_check = np.arange(0.1, 1, 0.1)
+    # --- (iii) Check p-values (carved - normal) --- #
     alpha_seq = [0.05, 0.1, 0.2]
     cn_msr = ['sigma2','noise','z_null','pval']
     cn_gg = ['sigma2','noise']
@@ -106,10 +108,10 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=5, b0:int=+1, 
     assert cover_est_carved < cover_err_est, f'The largest different in coverage for carved data {cover_est_carved} is larger than tolerance: {cover_err_est}'
 
     
-    # --- (iv) Check p-values and coverage (screened) --- #
+    # --- (iv) Check p-values and coverage (screened - truncated normal) --- #
 
 
-    # --- (v) Check p-values and coverage (carved + screened) --- #
+    # --- (v) Check p-values and coverage (carved + screened - NTS) --- #
 
     
     
