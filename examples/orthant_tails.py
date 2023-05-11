@@ -12,6 +12,20 @@ from scipy.stats import norm
 from sntn.dists import nts, bvn
 from sntn.utilities.grad import _log_gauss_approx
 
+"""
+Another issue
+"""
+
+x = 0.09308509
+mu = -1.0392994
+tau21 = 0.03343167
+tau22 = 0.03407728
+a = 0.22111192
+b = 0.37452124
+c1, c2 = 0.5, 0.5
+nts(mu, tau21, None, tau22, a, b, c1, c2, fix_mu=True, cdf_approach='scipy').cdf(x)
+nts(mu, tau21, None, tau22, a, b, c1, c2, fix_mu=True, cdf_approach='owen').cdf(x)
+
 
 """
 Coverage issue??

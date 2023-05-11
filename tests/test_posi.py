@@ -15,7 +15,6 @@ from scipy.stats import binom
 from sntn.posi import marginal_screen
 from sntn.utilities.linear import dgp_sparse_yX
 
-
 def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, snr:float=2.0, type1:float=0.1, pval_gt_tol:float=0.01, cover_gt_tol:float=0.01) -> None:
     """
     Parameters
@@ -44,7 +43,7 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, 
     stime = time()
     for i in range(nsim):
         # Draw data
-        if (i+1) % 25 == 0:
+        if (i+1) % 5 == 0:
             dtime = time() - stime
             rate = (i+1) / dtime
             seta = (nsim-i-1)/rate
@@ -53,7 +52,6 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, 
         
         # (i) Run the screen (do not normalize x since this effectively regularizes bhat coefficients slightly)
         screener = marginal_screen(k, y, x, seed=i, normalize=False, alpha=type1)
-        screener.get_A()  # Get the PoSI constraints
         
         # (ii) Calculate the oracle variance var(y-f(xbeta))
         idx_noise = ~np.isin(screener.cidx_screen, cidx_gt)
@@ -64,15 +62,18 @@ def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, 
         # (iii) Perform inference when variance is "known"
         screener.run_inference(alpha=type1, null_beta=beta_null, sigma2=sigma2_posi)
         res_gt_i = pd.concat(objs=[screener.res_split.assign(mdl='split', sigma2='gt'),
-                                   screener.res_screen.assign(mdl='screen', sigma2='gt')])
+                                   screener.res_screen.assign(mdl='screen', sigma2='gt'),
+                                   screener.res_carve.assign(mdl='carve', sigma2='gt')])
 
-        # (iv) Perform inference when variance needs to be estimated
-        screener.estimate_sigma2()
-        screener.run_inference(alpha=type1, null_beta=beta_null, sigma2=screener.sig2hat)
-        res_est_i = pd.concat(objs=[screener.res_split.assign(mdl='split', sigma2='est'),
-                                   screener.res_screen.assign(mdl='screen', sigma2='est')])
-        # Join and save
-        res_i = pd.concat(objs=[res_gt_i, res_est_i]).assign(sim=i+1)
+        # # (iv) Perform inference when variance needs to be estimated
+        # screener.estimate_sigma2()
+        # screener.run_inference(alpha=type1, null_beta=beta_null, sigma2=screener.sig2hat, run_carve=False)
+        # res_est_i = pd.concat(objs=[screener.res_split.assign(mdl='split', sigma2='est'),
+        #                             screener.res_screen.assign(mdl='screen', sigma2='est')])
+        
+        # (v) Join and save
+        # res_i = pd.concat(objs=[res_gt_i, res_est_i]).assign(sim=i+1)
+        res_i = res_gt_i.assign(sim=i+1)
         holder_sim.append(res_i)
     
     # --- (ii) Merge data --- #

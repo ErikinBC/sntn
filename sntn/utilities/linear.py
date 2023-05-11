@@ -90,7 +90,7 @@ class ols():
         pval = 2 * np.minimum(pval, 1-pval)
         lb = bhat - crit_val*se
         ub = bhat + crit_val*se
-        self.res_inf = pd.DataFrame({'bhat':bhat, 'pval':pval, 'lb':lb, 'ub':ub})
+        self.res_inf = pd.DataFrame({'bhat':bhat, 'se':se, 'pval':pval, 'lb':lb, 'ub':ub})
 
 
     def predict(self, x:np.ndarray) -> np.ndarray:

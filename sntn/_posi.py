@@ -92,11 +92,11 @@ class _posi_marginal_screen(_split_yx):
         #     self.se_bhat_split = np.sqrt(self.sig2hat * self.ols_split.igram.diagonal())
         
 
-    def get_A(self) -> None:
+    def get_A(self) -> np.ndarray:
         """
         Calculates the A from Ay <= b for the marginal screening proceedure
         
-        Methods
+        Returns
         =======
         mat_A:          A (2*k*(p-k), n) matrix
         """
@@ -105,24 +105,61 @@ class _posi_marginal_screen(_split_yx):
         partial = np.vstack([partial, -partial])  # (2*(p-k),p) matrix
         n_partial = partial.shape[0]
         # For each screened variable, another partial matrix will be added
-        self.mat_A = np.zeros([partial.shape[0]*self.k, self.x_screen.shape[0]])
+        mat_A = np.zeros([partial.shape[0]*self.k, self.x_screen.shape[0]])
         for i, cidx in enumerate(self.cidx_screen[::-1]):
             partial_cp = partial.copy()
             partial_cp[:,cidx] = -self.s[cidx]
             start, stop = int(i*n_partial), int((i+1)*n_partial)
-            self.mat_A[start:stop] = np.dot(partial_cp, self.x_screen.T)
+            mat_A[start:stop] = np.dot(partial_cp, self.x_screen.T)
+        return mat_A
         
 
-
-    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None) -> None:
+    def inference_on_screened(self, sigma2:float or int) -> tuple:
         """
-        Carries out inferences...
+        Runs post selection inference for the screened variables
+
+        Returns
+        =======
+        A tuple containing (alph_den, v_neg, v_pos) which is equivalent to the tnorm(; sigma2, a, b) terms
+        """
+        # See Lee (2014) for derivations of key terms
+        mat_A = self.get_A()
+        x_s = self.x_screen[:,self.cidx_screen]
+        # assert all([isclose(xmu,0) for xmu in x_s.mean(0)]), 'Expected x_s to be de-meaned'
+        # eta: The direction column span of x to be tested (k,n)
+        bhat_S = self.ols_screen.linreg.coef_
+        eta = np.dot(self.ols_screen.igram, x_s.T)
+        # see Eq. 6 (note that sigma2 should cancel out)
+        alph_num = sigma2 * np.dot(mat_A, eta.T)
+        alph_den = sigma2 * np.sum(eta**2, axis=1)
+        # A (q,k) array, where q is the number of constraints for each of the k dimensions being tested
+        alph = alph_num / alph_den
+        # mat_A is a (q,n) set of constaints on each of the dimensions of y
+        # Ay is a (q,1) array, it is independent of the k coordinates
+        Ay = np.dot(mat_A, cvec(self.y_screen))
+        # For each column, find the alph's that are negative and apply Eq. 7, the alph's the are positive and apply Eq. 8
+        ratio = -Ay/alph + rvec(bhat_S)  # alph_j*beta_j/alph_j = beta_j
+        assert ratio.shape == alph.shape, 'ratio and alph should be the same shape'
+        # Indexes are w.r.t to alph's
+        v_neg = np.max(np.where(alph < 0, ratio, -np.inf), axis=0)
+        v_pos = np.min(np.where(alph > 0, ratio, +np.inf), axis=0)
+        assert np.all(v_pos > v_neg), 'expected pos to be larger than neg'
+        return alph_den, v_neg, v_pos
+
+
+    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, **kwargs) -> None:
+        """
+        Carries out classical and PoSI inference (including data carving)
         
         Parameters
         ==========
         alpha:                  The type-I error rate
         null_beta:              The null hypothesis (default=0)
         sigma2:                 If estimate_sigma2() has not been run, user must specify the value
+        run_screen:             Whether inference should be done on the truncated normal screened data (default=True)
+        run_split:              Whether classical (normal/student-t) should be run of the split data (default=True)
+        run_carve:              Whether carve infernce (NTS) should be run of screen+split data (default=True)
+        **kwargs:               To be passed onto nts() dist
 
         Attributes
         ==========
@@ -151,46 +188,52 @@ class _posi_marginal_screen(_split_yx):
 
 
         # -- (ii) Calculate normal/student-t for screened distribution -- #
-        if self.frac_split > 0:
+        if (self.frac_split > 0) and run_split:
             self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
             self.res_split = self.ols_split.res_inf
             self.res_split.insert(0, 'cidx', self.cidx_screen)
                 
         # -- (iii) Calculate truncated normal for screened distribution -- #
-        # See Lee (2014) for derivations of key terms
-        x_s = self.x_screen[:,self.cidx_screen]
-        # assert all([isclose(xmu,0) for xmu in x_s.mean(0)]), 'Expected x_s to be de-meaned'
-        # eta: The direction column span of x to be tested (k,n)
-        bhat_S = self.ols_screen.linreg.coef_
-        eta = np.dot(self.ols_screen.igram, x_s.T)
-        # see Eq. 6 (note that sigma2 should cancel out)
-        alph_num = sigma2 * np.dot(self.mat_A, eta.T)
-        alph_den = sigma2 * np.sum(eta**2, axis=1)
-        # A (q,k) array, where q is the number of constraints for each of the k dimensions being tested
-        alph = alph_num / alph_den
-        # mat_A is a (q,n) set of constaints on each of the dimensions of y
-        # Ay is a (q,1) array, it is independent of the k coordinates
-        Ay = np.dot(self.mat_A, cvec(self.y_screen))
-        # For each column, find the alph's that are negative and apply Eq. 7, the alph's the are positive and apply Eq. 8
-        ratio = -Ay/alph + rvec(bhat_S)  # alph_j*beta_j/alph_j = beta_j
-        assert ratio.shape == alph.shape, 'ratio and alph should be the same shape'
-        # Indexes are w.r.t to alph's
-        v_neg = np.max(np.where(alph < 0, ratio, -np.inf), axis=0)
-        v_pos = np.min(np.where(alph > 0, ratio, +np.inf), axis=0)
-        assert np.all(v_pos > v_neg), 'expected pos to be larger than neg'
-        
-        # Create a dataframe with the truncnorm distribution
-        self.dist_screen = tnorm(null_beta, alph_den, v_neg, v_pos)
-        # Add on the p-values and conf-int's
-        pval = self.dist_screen.cdf(bhat_S)
-        pval = 2*np.minimum(pval, 1-pval)
-        ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
-        self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_S, 'pval':pval, 'lb':ci_lbub[:,0], 'ub':ci_lbub[:,1]})
+        if run_screen:
+            alph_den, v_neg, v_pos = self.inference_on_screened(sigma2)
+            self.dist_screen = tnorm(null_beta, alph_den, v_neg, v_pos)
+            # Add on the p-values and conf-int's
+            bhat_S = self.ols_screen.linreg.coef_
+            pval = self.dist_screen.cdf(bhat_S)
+            pval = 2*np.minimum(pval, 1-pval)
+            ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
+            self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_S, 'pval':pval, 'lb':ci_lbub[:,0], 'ub':ci_lbub[:,1]})
 
         # -- (iv) Calculate NTS screen+split data (i.e. carving) -- #
-        # self.dist_carve = None
-        # if self.frac_split > 0:
-        #     self.dist_carve = nts(mu1=,tau21=,mu2=,tau22=,a=,b=,)
-        
+        if run_carve:
+            assert run_split and run_screen, 'if run_carved is to be run, run_{split,screen} must be True'
+            mu1 = self.res_split['bhat'].copy()
+            tau21 = self.res_split['se']**2
+            mu2 = self.res_screen['bhat'].copy()
+            tau22 = alph_den.copy()
+            a, b = v_neg.copy(), v_pos.copy()
+            # if ('c1' not in kwargs) and ('c2' not in kwargs):
+            #     # Assign fraction for default
+            #     c1 = self.frac_split
+            #     c2 = 1 - self.frac_split
+            # else:
+            #     c1, c2 = kwargs['c1'], kwargs['c2']
+            c1, c2 = 1, 1
+            # Populate distribution under the null hypothesis
+            bhat_carve = c1*mu1 + c2*mu2
+            if 'cdf_approach' not in kwargs:
+                cdf_approach = 'owen'
+            else:
+                cdf_approach = kwargs['cdf_approach']
+            self.dist_carve = nts(null_beta, tau21, None, tau22, a, b, c1, c2, fix_mu=True, cdf_approach= cdf_approach)
+            # Calculate terms for dataframe
+            pval = self.dist_carve.cdf(bhat_carve)
+            pval = 2*np.minimum(pval, 1-pval)
+            ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach= cdf_approach)
+            ci_lbub = np.squeeze(ci_lbub)
+            self.res_carve = pd.DataFrame({'cidx':self.cidx_screen, 'bhat':bhat_carve, 'pval':pval, 'lb':ci_lbub[:,0], 'ub':ci_lbub[:,1]}) # , 'mu':self.dist_carve.mean()
+
+        # Remove column used only for carve
+        self.res_split.drop(columns='se', errors='ignore', inplace=True)
         
 
