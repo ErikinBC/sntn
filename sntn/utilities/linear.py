@@ -70,7 +70,7 @@ class ols():
             assert isinstance(sigma2, float) or isinstance(sigma2, int), 'if sigma2 is specified, should be float or int'
         # Null hypothesis for mu=X'null_beta
         if isinstance(null_beta, float) or isinstance(null_beta, int):
-            null_beta = np.repeat(null_beta, self.k)
+            null_beta = np.repeat(null_beta, self.igram.shape[0])
         if not isinstance(null_beta, np.ndarray):
             null_beta = np.asarray(null_beta)
         n_params_test = self.k-int(self.has_int)
@@ -90,7 +90,7 @@ class ols():
         pval = 2 * np.minimum(pval, 1-pval)
         lb = bhat - crit_val*se
         ub = bhat + crit_val*se
-        self.res_inf = pd.DataFrame({'bhat':bhat, 'z':z, 'pval':pval, 'lb':lb, 'ub':ub})
+        self.res_inf = pd.DataFrame({'bhat':bhat, 'pval':pval, 'lb':lb, 'ub':ub})
 
 
     def predict(self, x:np.ndarray) -> np.ndarray:

@@ -151,9 +151,10 @@ class _posi_marginal_screen(_split_yx):
 
 
         # -- (ii) Calculate normal/student-t for screened distribution -- #
-        self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
-        self.res_split = self.ols_split.res_inf
-        self.res_split.insert(0, 'cidx', self.cidx_screen)
+        if self.frac_split > 0:
+            self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
+            self.res_split = self.ols_split.res_inf
+            self.res_split.insert(0, 'cidx', self.cidx_screen)
                 
         # -- (iii) Calculate truncated normal for screened distribution -- #
         # See Lee (2014) for derivations of key terms
@@ -188,7 +189,7 @@ class _posi_marginal_screen(_split_yx):
 
         # -- (iv) Calculate NTS screen+split data (i.e. carving) -- #
         # self.dist_carve = None
-        # if self.frac_carve > 0:
+        # if self.frac_split > 0:
         #     self.dist_carve = nts(mu1=,tau21=,mu2=,tau22=,a=,b=,)
         
         

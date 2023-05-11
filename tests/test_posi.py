@@ -10,11 +10,10 @@ import pytest
 import numpy as np
 import pandas as pd
 from time import time
-from scipy.stats import norm, binom
-# from sklearn.linear_model import ElasticNetCV
+from scipy.stats import binom
 # Internal
 from sntn.posi import marginal_screen
-from sntn.utilities.linear import dgp_sparse_yX, ols
+from sntn.utilities.linear import dgp_sparse_yX
 
 
 def test_posi(k:int=5, nsim:int=1000, n:int=100, p:int=150, s:int=2, b0:int=+1, snr:float=2.0, type1:float=0.1, pval_gt_tol:float=0.01, cover_gt_tol:float=0.01) -> None:
