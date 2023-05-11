@@ -6,10 +6,42 @@ Utility functions
 import os
 import numpy as np
 import pandas as pd
-from inspect import getfullargspec, signature
 from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
+from inspect import getfullargspec, signature
+from statsmodels.stats.proportion import proportion_confint as prop_CI
+
+# Return lb/ub confidence intervals on a binomial proportion
+# df=res_cover;cn_den='count';cn_pct='mean';cn_num=None;method='beta'
+def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None or str=None, cn_num:None or str=None, alpha:float=0.05, method='beta') -> pd.DataFrame:
+    """
+    Add on the binomial proportion CI to an existing DataFrame. User must specify either the percent of successes (cn_pct) or number of successes (cn_num)
+
+    Params
+    ======
+    cn_den:             Column with the number of observations (denominator)
+    cn_pct:             Column with the percent of successes
+    cn_num:             Column giving the number of successes (numerator)
+    alpha:              Type-I error rate
+    method:             See proportion_confint(method=...)
+    """
+    assert (cn_pct is not None) or (cn_num is not None), 'At least one of cn_{pct,num} must be specified'
+    num_tries = df[cn_den].copy()
+    if cn_pct is not None:  # count can be unknown
+        assert isinstance(cn_pct, str), 'if cn_pct is not None, then it must be a string'
+        pct_success = df[cn_pct].copy()
+        num_successes = pct_success * num_tries
+    else:  # percent can be unknwoen
+        assert isinstance(cn_num, str), 'if cn_prop is None, then cn_count needs to be a string'
+        num_successes = df[cn_num].copy()
+        pct_success = num_successes / num_tries
+    tmp_CI = prop_CI(count=num_successes, nobs=num_tries, alpha=alpha, method=method)
+    tmp_CI = pd.DataFrame(np.vstack(tmp_CI).T, columns=['lb','ub'])
+    res = pd.concat(objs=[df, tmp_CI], axis=1)
+    assert np.all( (res['lb'] <= pct_success) & (res['ub'] >= pct_success) ), 'Woops! [lb,ub] do not bracket the percent of successes!'
+    return res
+
 
 def try_except_breakpoint(cond:bool, stmt:str or None=None):
     if stmt is None:
