@@ -16,6 +16,21 @@ from sntn.utilities.grad import _log_gauss_approx
 Another issue
 """
 
+# mu = 
+x = -5.42473206
+tau21 = 11.11613935
+tau22 = 0.03412925
+a = -0.34085213
+b = -0.28341952
+m_seq = np.linspace(-33, 33.1, 21)
+cdf = nts(m_seq, tau21, None, tau22, a, b, fix_mu=True, cdf_approach='scipy').cdf(x).flatten()
+print(pd.DataFrame({'cdf':cdf,'mu':m_seq}))
+breakpoint()
+
+"""
+Another issue
+"""
+
 x = 0.09308509
 mu = -1.0392994
 tau21 = 0.03343167

@@ -3,3 +3,4 @@ papers/
 *__pycache__*
 *.DS_Store*
 xy_screen.csv
+*.csv

@@ -150,11 +150,13 @@ class _nts():
         # Get CDF
         pval = (cdf2 - cdf1) / self.Z
         # If cdf2 and cdf1 1 are effectively, then tail is so extreme solution is one
-        pval[(cdf2 - cdf1 == 0) & (cdf2.round(5) == 1)] = 1
+        pval[(cdf2 - cdf1 == 0) & (cdf2.round() == 1)] = 1
         # If Z is zero, then it's going to be zero
         pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
         # Return to proper shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
+        # Bound b/w [0,1]
+        pval = np.clip(pval, 0, 1)
         return pval
             
 

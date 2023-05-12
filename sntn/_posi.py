@@ -147,7 +147,7 @@ class _posi_marginal_screen(_split_yx):
         return alph_den, v_neg, v_pos
 
 
-    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, **kwargs) -> None:
+    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, run_ci:bool=True, **kwargs) -> None:
         """
         Carries out classical and PoSI inference (including data carving)
         
@@ -159,6 +159,7 @@ class _posi_marginal_screen(_split_yx):
         run_screen:             Whether inference should be done on the truncated normal screened data (default=True)
         run_split:              Whether classical (normal/student-t) should be run of the split data (default=True)
         run_carve:              Whether carve infernce (NTS) should be run of screen+split data (default=True)
+        run_ci:                 Whether CIs should be calculated
         **kwargs:               To be passed onto nts() dist
 
         Attributes
@@ -201,8 +202,11 @@ class _posi_marginal_screen(_split_yx):
             bhat_S = self.ols_screen.linreg.coef_
             pval = self.dist_screen.cdf(bhat_S)
             pval = 2*np.minimum(pval, 1-pval)
-            ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
-            self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_S, 'pval':pval, 'lb':ci_lbub[:,0], 'ub':ci_lbub[:,1]})
+            self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_S, 'pval':pval})
+            if run_ci:
+                ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
+                self.res_screen['lb'] = ci_lbub[:,0]
+                self.res_screen['ub'] = ci_lbub[:,1]
 
         # -- (iv) Calculate NTS screen+split data (i.e. carving) -- #
         if run_carve:
@@ -229,11 +233,15 @@ class _posi_marginal_screen(_split_yx):
             # Calculate terms for dataframe
             pval = self.dist_carve.cdf(bhat_carve)
             pval = 2*np.minimum(pval, 1-pval)
-            ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach= cdf_approach)
-            ci_lbub = np.squeeze(ci_lbub)
-            self.res_carve = pd.DataFrame({'cidx':self.cidx_screen, 'bhat':bhat_carve, 'pval':pval, 'lb':ci_lbub[:,0], 'ub':ci_lbub[:,1]}) # , 'mu':self.dist_carve.mean()
+            self.res_carve = pd.DataFrame({'cidx':self.cidx_screen, 'bhat':bhat_carve, 'pval':pval})
+            if run_ci:
+                ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach= cdf_approach)
+                ci_lbub = np.squeeze(ci_lbub)
+                self.res_carve['lb'] = ci_lbub[:,0]
+                self.res_carve['ub'] = ci_lbub[:,1]
 
         # Remove column used only for carve
-        self.res_split.drop(columns='se', errors='ignore', inplace=True)
+        if run_split:
+            self.res_split.drop(columns='se', errors='ignore', inplace=True)
         
 
