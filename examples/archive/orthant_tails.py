@@ -16,6 +16,23 @@ from sntn.utilities.grad import _log_gauss_approx
 Another issue
 """
 
+mu = 0
+tau21 = 4
+tau22 = 0.04040404040404041
+a = 1
+b = np.inf
+c1, c2 = 0.01, 0.99
+dist = nts(mu, tau21, mu, tau22, a, b, c1, c2, cdf_approach='scipy')
+# dist.mean()
+# dist.rvs(1000000).mean()
+x_seq = np.linspace(1,2,30)
+dist.cdf(x_seq)
+
+
+"""
+Another issue
+"""
+
 # mu = 
 x = -5.42473206
 tau21 = 11.11613935
