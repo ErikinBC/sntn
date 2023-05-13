@@ -216,13 +216,13 @@ class _posi_marginal_screen(_split_yx):
             mu2 = self.res_screen['bhat'].copy()
             tau22 = alph_den.copy()
             a, b = v_neg.copy(), v_pos.copy()
-            # if ('c1' not in kwargs) and ('c2' not in kwargs):
-            #     # Assign fraction for default
-            #     c1 = self.frac_split
-            #     c2 = 1 - self.frac_split
-            # else:
-            #     c1, c2 = kwargs['c1'], kwargs['c2']
-            c1, c2 = 1, 1
+            if ('c1' in kwargs) and ('c2' in kwargs):
+                c1, c2 = kwargs['c1'], kwargs['c2']
+            else:
+                # Assign fraction for default
+                c1, c2 = 1, 1
+                # c1 = self.frac_split
+                # c2 = 1 - self.frac_split
             # Populate distribution under the null hypothesis
             bhat_carve = c1*mu1 + c2*mu2
             if 'cdf_approach' not in kwargs:
