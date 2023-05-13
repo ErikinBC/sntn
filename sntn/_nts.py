@@ -217,68 +217,70 @@ class _nts():
         return err
 
 
-    def ppf(self, p:np.ndarray, method:str='root_loop', tol:float=1e-3, verbose:bool=False, verbose_iter:int=50, **kwargs) -> np.ndarray:
+    def ppf(self, p:np.ndarray, method:str='loop', tol:float=1e-3, verbose:bool=False, verbose_iter:int=50, ndraw:int=10000, **kwargs) -> np.ndarray:
         """
         Returns the quantile of the NTS distribution(s)
         
         Arguments
         ---------
         p:                  An array of whose last dimensions can be flattened
-        method:             See below (default='root_loop')
+        method:             See below (default='loop')
         tol:                Maximum tolerance we will allow for solution to have failed
         verbose:            For the root_loop method, whether updates should be printed
         verbose_iter:       If verbose, after how many iterations should a status be printed?
+        ndraw:              If the i,j'th root finding fails, how many samples to take from rvs to calculate empirical quantile
 
+        Methods
+        -------
+        root:               Solve all roots simultaneously (fast but unstable)
+        loop:               Loop over all i,j configurations (slower but more stable)
+        approx:             Use the quantiles from each dist
         """
-        valid_ppf_methods = ['root', 'root_loop', 'approx']
+        valid_ppf_methods = ['root', 'approx', 'loop']  #, 'root_loop'
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
         p = np.atleast_1d(p)
         p = broadcast_to_k(p, self.param_shape)
-        w0 = self.c1*self.dist_Z1.ppf(p) + self.c1*self.dist_Z2.ppf(p)
+        w0 = self.c1*self.dist_Z1.ppf(p) + self.c2*self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
         if method == 'approx':
             # Use the simple quantiles
-            w = reverse_broadcast_from_k(w0, self.param_shape)
-        if method == 'root_loop':
-            # Still technically the root, but will loop over the samples
-            if (len(p.shape) == 1) and (len(self.param_shape) > 1):
-                p = np.expand_dims(p, 0)
-                w0 = np.expand_dims(w0, 0)
+            w = w0.copy()
+        if method == 'loop':
+            # Prepare for loop
+            w0, p = np.atleast_2d(w0), np.atleast_2d(p)
             n = len(w0)
+            ntot = int(np.prod(w0.shape))
             w = np.zeros(w0.shape)
             stime = time()
-            for i in range(n):
-                w0_i = np.atleast_1d(w0[i])
-                p_i = np.atleast_1d(p[i])
-                solution_i = root(self._err_cdf_p, w0_i, args=(p_i))
-                merr_i = np.max(np.abs(solution_i.fun))
-                if merr_i > tol:
-                    # Trying one more time
-                    idx_fail = np.abs(solution_i.fun) > tol
-                    print(f'{idx_fail.sum()} of {idx_fail.shape[0]} roots failed at iteration {i+1}, trying one more time')
-                    w0_i[~idx_fail] = solution_i.x[~idx_fail]
-                    w0_i[idx_fail] = np.quantile(broadcast_to_k(self.rvs(25), self.param_shape),p_i[0],0)[idx_fail]
-                    # Force scipy for cdf approach  (self._err_cdf_p(w0_i, p_i))
-                    err_i = self.cdf(w0_i, cdf_approach='scipy') - p_i[0]
-                    solution_i = root(self._err_cdf_p, w0_i, args=(p_i))
-                    merr_i = np.max(np.abs(solution_i.fun))
-                assert merr_i <= tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol} for iteration {i}'
-                w[i] = solution_i.x
-                if verbose:
-                    if (i+1) % verbose_iter == 0:
-                        dtime, nleft = time() - stime, n - (i+1)
-                        rate = (i+1) / dtime
-                        seta = nleft / rate
-                        print(f'Iteration {i+1} of {n} (ETA={seta/60:.1f} minutes)')
-            w = reverse_broadcast_from_k(w, self.param_shape)
+            # Outer loop if the j'th parameter (out of k)
+            for j in range(self.k):
+                dist_j = _nts(self.mu1[j], self.tau21[j], self.mu2[j], self.tau22[j], self.a[j], self.b[j], self.c1[j], self.c2[j], cdf_approach=self.bvn.cdf_approach)
+                fun_j = lambda xx, pp: dist_j.cdf(xx) - pp            
+                # Inner loop are the n quantile point
+                for i in range(n):
+                    w0_ij = w0[i,j]
+                    p_ij = p[i,j]
+                    solution_ij = root(fun_j, w0_ij, args=(p_ij))
+                    merr_ij = np.max(np.abs(solution_ij.fun))
+                    if merr_ij > tol:
+                        breakpoint()
+                    w[i,j] = solution_ij.x[0]
+                    if verbose:
+                        ncomp = i*self.k + (j+1)
+                        if ncomp % verbose_iter == 0:
+                            dtime = time() - stime
+                            nleft = ntot - ncomp
+                            rate = ncomp / dtime
+                            seta = nleft / rate
+                            print(f'Iteration {ncomp} of {ntot} (ETA={seta/60:.1f} minutes)')
         if method == 'root':
             solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
             merr = np.abs(solution.fun).max()
             assert merr < tol, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol}'
             w = solution.x.reshape(w0.shape) # Reshape
             # Put to original param shape
-            w = reverse_broadcast_from_k(w, self.param_shape)
+        w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
 

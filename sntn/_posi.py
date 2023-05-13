@@ -85,12 +85,6 @@ class _posi_marginal_screen(_split_yx):
         # Use data-weighted final value
         self.sig2hat = (1-self.frac_split)*sig2hat_screen + self.frac_split*sig2hat_split
         
-        # # Calculate the se(beta) using the variance
-        # self.se_bhat_screen = np.sqrt(self.sig2hat * self.ols_screen.igram.diagonal())
-        # self.se_bhat_split = np.zeros(self.se_bhat_screen.shape)
-        # if self.frac_split > 0:
-        #     self.se_bhat_split = np.sqrt(self.sig2hat * self.ols_split.igram.diagonal())
-        
 
     def get_A(self) -> np.ndarray:
         """
@@ -216,20 +210,15 @@ class _posi_marginal_screen(_split_yx):
             mu2 = self.res_screen['bhat'].copy()
             tau22 = alph_den.copy()
             a, b = v_neg.copy(), v_pos.copy()
-            if ('c1' in kwargs) and ('c2' in kwargs):
-                c1, c2 = kwargs['c1'], kwargs['c2']
-            else:
-                # Assign fraction for default
-                c1, c2 = 1, 1
-                # c1 = self.frac_split
-                # c2 = 1 - self.frac_split
+            c1 = self.frac_split
+            c2 = 1 - self.frac_split
             # Populate distribution under the null hypothesis
             bhat_carve = c1*mu1 + c2*mu2
             if 'cdf_approach' not in kwargs:
                 cdf_approach = 'owen'
             else:
                 cdf_approach = kwargs['cdf_approach']
-            self.dist_carve = nts(null_beta, tau21, None, tau22, a, b, c1, c2, fix_mu=True, cdf_approach= cdf_approach)
+            self.dist_carve = nts(null_beta, tau21, null_beta, tau22, a, b, c1, c2, cdf_approach=cdf_approach)
             # Calculate terms for dataframe
             pval = self.dist_carve.cdf(bhat_carve)
             pval = 2*np.minimum(pval, 1-pval)

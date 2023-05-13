@@ -1,7 +1,7 @@
 """
 Shows how data carving works for simple sample mean test
 
-python3 -m examples.sample_mean
+python3 -m examples.2_sample_mean
 """
 
 # External

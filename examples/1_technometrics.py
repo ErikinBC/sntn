@@ -1,5 +1,7 @@
 """
 Shows how to use the nts class to answer the question posed in the 1964 issue of Technometrics: https://www.jstor.org/stable/1266101?seq=1
+
+python3 -m examples.1_technometrics
 """
 
 # External
