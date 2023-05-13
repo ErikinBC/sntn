@@ -203,9 +203,9 @@ class _nts():
             assert n == int(n), 'expected n to be a whole number'
             n = int(n)
             w = np.squeeze(w.reshape([n,self.k]))
-            pval = self.cdf(w)
+            pval = np.squeeze(self.cdf(w))
             p = np.squeeze(p.reshape(pval.shape))
-            err = (pval - p).flatten()
+            err = pval - p
         else:
             # w/p are the correct shapes for evaluation, but they need to be flattened for the root solver
             err = self.cdf(w) - p
@@ -228,8 +228,8 @@ class _nts():
         valid_ppf_methods = ['root', 'root_loop', 'approx']
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
-        p = broadcast_to_k(np.atleast_1d(p), self.param_shape)
-        # Use the naive quantiles for an initial guess
+        p = np.atleast_1d(p)
+        p = broadcast_to_k(p, self.param_shape)
         w0 = self.dist_Z1.ppf(p) + self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
         if method == 'approx':
@@ -237,13 +237,16 @@ class _nts():
             w = reverse_broadcast_from_k(w0, self.param_shape)
         if method == 'root_loop':
             # Still technically the root, but will loop over the samples
+            if (len(p.shape) == 1) and (len(self.param_shape) > 1):
+                p = np.expand_dims(p, 0)
+                w0 = np.expand_dims(w0, 0)
             n = len(w0)
             w = np.zeros(w0.shape)
             stime = time()
             for i in range(n):
                 solution_i = root(self._err_cdf_p, np.atleast_1d(w0[i]), args=(np.atleast_1d(p[i])))
-                merr_i = np.abs(solution_i.fun).max()
-                assert merr_i < tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol}'
+                merr_i = np.max(np.abs(solution_i.fun))
+                assert merr_i <= tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol} for iteration {i}'
                 w[i] = solution_i.x
                 if verbose:
                     if (i+1) % verbose_iter == 0:

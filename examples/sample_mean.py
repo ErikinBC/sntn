@@ -1,3 +1,8 @@
+"""
+Shows how data carving works for simple sample mean test
+
+python3 -m examples.sample_mean
+"""
 
 # External
 import os
@@ -47,14 +52,10 @@ dist_alt_screen = tnorm(*np.broadcast_arrays(mu_seq, var_screen),thresh,np.inf)
 assert np.all(dist_null_screen.cdf(2).flatten() == dist_alt_screen.cdf(2)[:,0]), 'expected 0th column to align with null distribution'
 
 # (iii) Data carving: NTS
-dist_null_carve = nts(mu_null, var_split, mu_null, var_screen, thresh, np.inf, 1, 1)
+mu_null_wide = np.broadcast_arrays(mu_null, mu_seq)[0]
+dist_null_carve = nts(*np.broadcast_arrays(mu_null_wide, var_split, mu_null_wide, var_screen), thresh, np.inf, 1, 1)
 dist_alt_carve = nts(*np.broadcast_arrays(mu_seq, var_split, mu_seq, var_screen),thresh, np.inf, 1,1)
 assert np.all(dist_null_carve.ppf(0.5,method='approx')[0,:,0] == dist_alt_carve.ppf(0.5,'approx')[0,:,0]), 'expected ppfs to line up'
-# FAILS
-# dist_null_carve.ppf(0.5,method='root')
-# dist_null_carve.ppf(0.5,method='root_loop')
-# dist_null_carve.ppf(np.repeat(0.5,len(frac_split)))
-
 
 
 ###############################
@@ -75,15 +76,16 @@ power_screen = np.mean(1 - dist_null_screen.cdf(q_screen_alt) < alpha, axis=0)
 res_power_screen = pd.DataFrame(power_screen,index=n_screen,columns=mu_seq.flat).rename_axis('n').melt(ignore_index=False,var_name='mu',value_name='power').reset_index().assign(method='screen')
 
 # (iii) Data carving: NTS
-q_carve_alt = dist_alt_carve.ppf(p_seq.flatten())
-#   File "/Users/drysdaleerik/Documents/code/nts/sntn/_nts.py", line 246, in ppf
-    # assert merr_i < tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol}'           ^^^^^^^^^^^^
-# AssertionError: Error! Root finding had a max error 0.001 which exceeded tolerance 0.001
-
+# Solving thousands of roots takes to long, use empirical quantiles
+ndraw = 25000
+q_carve_alt = np.quantile(dist_alt_carve.rvs(ndraw, seed=seed),p_seq.flat, axis=0)
+# q_carve_alt = dist_alt_carve.ppf(p_seq.flatten(), verbose_iter=1, verbose=True)
+power_carve = np.mean(1 - dist_null_carve.cdf(q_carve_alt) < alpha, axis=0)
+res_power_carve = pd.DataFrame(power_carve,index=n_split,columns=mu_seq.flat).rename_axis('n').melt(ignore_index=False,var_name='mu',value_name='power').reset_index().assign(method='carve')
 
 
 # (iv) Combine all
-res_power = pd.concat(objs=[res_power_split, res_power_screen])
+res_power = pd.concat(objs=[res_power_split, res_power_screen, res_power_carve])
 res_type1 = res_power.query('mu==0').reset_index(drop=True)
 res_type2 = res_power.query('mu>0').reset_index(drop=True)
 

@@ -245,10 +245,7 @@ class conf_inf_solver():
                 fun_check[k] = di_fail['f'](x0_check[k], *di_fail['args'])
             # Find the first point of transition
             idx_flip = np.diff(fun_check > 0, axis=0)
-            try:
-                assert np.all(np.sum(idx_flip, axis=0) == 1), 'Multipe sign changes found!!'
-            except:
-                breakpoint()
+            assert np.all(np.sum(idx_flip, axis=0) == 1), 'Multipe sign changes found!!'
             idx_flip = np.argmax(idx_flip, axis=0)
             x_low = x0_check[idx_flip, range(n_fail)]
             x_high = x0_check[idx_flip+1, range(n_fail)]
