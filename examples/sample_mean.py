@@ -16,57 +16,6 @@ from sntn.dists import nts, tnorm
 from parameters import seed, dir_figures
 from sntn.utilities.utils import rvec, cvec, pn_labeller
 
-#############################
-# --- (0) SANITY CHECK --- #
-
-
-# In the limit, when n=99, we have a very tight distribution around our means ±0.2, so power is effectively 90% for mu=0.5. The null of the truncated normal is a tnorm(0,sigma2,1,inf), which has a very large value
-alpha = 0.1
-nsim = 1000000
-a = 1
-b = np.inf
-mu_null = 0.0
-mu_alt = 0.5
-sigma2 = 4
-n = 100
-n_split = 75
-n_screen = 100 - n_split
-sd_split = np.sqrt(sigma2 / n_split)
-sd_screen = np.sqrt(sigma2 / n_screen)
-c1 = n_split / n
-c2 = n_screen / n
-
-# Use NTS class to generate critival values and cdf (power)
-nts_null_u = nts(mu_null, sd_split**2, mu_null, sd_screen**2, a, b, 1, 1)
-nts_null_w = nts(mu_null, sd_split**2, 0, sd_screen**2, a, b, c1, c2)
-nts_alt_u = nts(mu_alt, sd_split**2, mu_alt, sd_screen**2, a, b, 1, 1)
-nts_alt_w = nts(mu_alt, sd_split**2, mu_alt, sd_screen**2, a, b, c1, c2)
-# Critical values
-crit_v_u = nts_null_u.ppf(1-alpha)[0]
-# crit_v_w = nts_null_w.ppf(1-alpha) # FAILS
-power_u = 1-nts_alt_u.cdf(crit_v_u)[0]
-power_w = 1
-# power_w = 1-nts_alt_w.cdf(crit_v_w)[0]
-assert np.abs(power_u - np.mean(nts_alt_u.rvs(nsim, seed=seed) > crit_v_u)) < 1e-4, 'cdf != rvs'
-
-# Repeat with rvs
-rvs_null_u = 1*norm(0, sd_split).rvs(nsim,random_state=seed) + 1*tnorm(0,sd_screen**2, a, b).rvs(nsim,seed=seed)
-rvs_null_w = c1*norm(0, sd_split).rvs(nsim,random_state=seed) + c2*tnorm(0,sd_screen**2, a, b).rvs(nsim,seed=seed)
-rvs_alt_u = 1*norm(mu_alt, sd_split).rvs(nsim,random_state=seed) + 1*tnorm(mu_alt,sd_screen**2, a, b).rvs(nsim,seed=seed)
-rvs_alt_w = c1*norm(mu_alt, sd_split).rvs(nsim,random_state=seed) + c2*tnorm(mu_alt,sd_screen**2, a, b).rvs(nsim,seed=seed)
-emp_critv_u = np.quantile(rvs_null_u, 1-alpha)
-emp_power_u = np.mean(rvs_alt_u > emp_critv_u)
-emp_critv_w = np.quantile(rvs_null_w, 1-alpha)
-emp_power_w = np.mean(rvs_alt_w > emp_critv_w)
-
-# Compare results
-print(f'~~~ c1={c1:.2f} (n1={n_split}), c2={c2:.2f} (n2={n_screen}) ~~~')
-print(f'Unweighted power for theory={power_u*100:.2f}%, empirical={emp_power_u*100:.2f}%')
-print(f'Weighted power for theory={power_w*100:.2f}%, empirical={emp_power_w*100:.2f}%')
-
-
-
-
 
 #################################
 # --- (1) SAMPLE MEAN DISTS --- #

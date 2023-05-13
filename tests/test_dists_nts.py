@@ -238,11 +238,6 @@ if __name__ == "__main__":
     shape_test = params_shape[2]
     alpha_test = params_alpha[1]
     
-    print('--- test_nts_conf_int ---')
-    # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
-    # Try Owen's method to make sure that scipy backup works as expected
-    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
-
     print('--- test_nts_rvs ---')
     test_nts_rvs(shape=shape_test)
     
@@ -255,5 +250,9 @@ if __name__ == "__main__":
     print('--- test_nts_ppf ---')
     test_nts_ppf(shape=shape_test)
 
+    print('--- test_nts_conf_int ---')
+    # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
+    # Try Owen's method to make sure that scipy backup works as expected
+    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

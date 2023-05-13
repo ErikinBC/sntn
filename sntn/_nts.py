@@ -106,19 +106,19 @@ class _nts():
         self.mu1, self.c1, self.tau21 = mu1, c1, tau21
         self.mu2, self.c2, self.tau22 = mu2, c2, tau22
         self.a, self.b = a, b
-        # Create attributes
         self.k = len(mu1)
-        c_mu1, c_mu2 = c1*mu1, c2*mu2
-        self.theta1 = c_mu1 + c_mu2
-        self.theta2 = c_mu2
+
+        # Create new attributes
+        self.theta1 = c1*mu1 + c2*mu2
+        self.theta2 = mu2
         sigma21 = c1**2 * tau21 + c2**2 * tau22
-        sigma22 = c2**2 * tau22
+        sigma22 = tau22
         self.sigma1 = np.sqrt(sigma21)
         self.sigma2 = np.sqrt(sigma22)
-        self.rho = self.sigma2 / self.sigma1
+        self.rho = c2 * self.sigma2 / self.sigma1
         # Calculate the truncated normal terms
-        self.alpha = (a - self.theta2) / self.sigma2
-        self.beta = (b - self.theta2) / self.sigma2
+        self.alpha = (a - mu2) / np.sqrt(tau22)
+        self.beta = (b - mu2) / np.sqrt(tau22)
         # Calculate Z, use 
         self.Z = norm.cdf(self.beta) - norm.cdf(self.alpha)
         # If we get tail values, true the approx
@@ -126,21 +126,25 @@ class _nts():
         if idx_tail.any():
             self.Z[idx_tail] = np.exp(_log_gauss_approx(self.beta[idx_tail], self.alpha[idx_tail]))
         # Initialize normal and trunctated normal
-        self.dist_Z1 = norm(loc=c_mu1, scale=c1*np.sqrt(tau21))
-        self.dist_Z2 = truncnorm(loc=self.theta2, scale=self.sigma2, a=self.alpha, b=self.beta)
+        self.dist_Z1 = norm(loc=mu1, scale=np.sqrt(tau21))
+        self.dist_Z2 = truncnorm(loc=mu2, scale=np.sqrt(tau22), a=self.alpha, b=self.beta)
         # Create the bivariate normal distribution
         self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs)
 
 
     def mean(self) -> np.ndarray:
         """Calculate the mean of the NTS distribution"""
-        mu = self.dist_Z1.mean() + self.dist_Z2.mean()
+        mu = self.c1*self.dist_Z1.mean() + self.c2*self.dist_Z2.mean()
         mu = mu.reshape(self.param_shape)
         return mu
 
 
     def cdf(self, w:np.ndarray, **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
+        # Consider updates bvn with kwargs match
+        kwargs_bvn = get_valid_kwargs_cls(_bvn, **kwargs)
+        if len(kwargs_bvn) > 0:
+            self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs_bvn)
         # Broadcast x to the same dimension of the parameters
         w = broadcast_to_k(np.atleast_1d(w), self.param_shape)
         m1 = (w - self.theta1) / self.sigma1
@@ -179,7 +183,7 @@ class _nts():
         """Generate n samples from the distribution"""
         z1 = self.dist_Z1.rvs([ndraw,self.k], random_state=seed)
         z2 = self.dist_Z2.rvs([ndraw, self.k], random_state=seed)
-        w = z1 + z2
+        w = self.c1*z1 + self.c2*z2
         w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
@@ -209,7 +213,8 @@ class _nts():
         else:
             # w/p are the correct shapes for evaluation, but they need to be flattened for the root solver
             err = self.cdf(w) - p
-        return err.flatten()
+        err = np.atleast_1d(err).flatten()
+        return err
 
 
     def ppf(self, p:np.ndarray, method:str='root_loop', tol:float=1e-3, verbose:bool=False, verbose_iter:int=50, **kwargs) -> np.ndarray:
@@ -230,7 +235,7 @@ class _nts():
         # Make sure aligns with the parameters
         p = np.atleast_1d(p)
         p = broadcast_to_k(p, self.param_shape)
-        w0 = self.dist_Z1.ppf(p) + self.dist_Z2.ppf(p)
+        w0 = self.c1*self.dist_Z1.ppf(p) + self.c1*self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
         if method == 'approx':
             # Use the simple quantiles
@@ -244,8 +249,20 @@ class _nts():
             w = np.zeros(w0.shape)
             stime = time()
             for i in range(n):
-                solution_i = root(self._err_cdf_p, np.atleast_1d(w0[i]), args=(np.atleast_1d(p[i])))
+                w0_i = np.atleast_1d(w0[i])
+                p_i = np.atleast_1d(p[i])
+                solution_i = root(self._err_cdf_p, w0_i, args=(p_i))
                 merr_i = np.max(np.abs(solution_i.fun))
+                if merr_i > tol:
+                    # Trying one more time
+                    idx_fail = np.abs(solution_i.fun) > tol
+                    print(f'{idx_fail.sum()} of {idx_fail.shape[0]} roots failed at iteration {i+1}, trying one more time')
+                    w0_i[~idx_fail] = solution_i.x[~idx_fail]
+                    w0_i[idx_fail] = np.quantile(broadcast_to_k(self.rvs(25), self.param_shape),p_i[0],0)[idx_fail]
+                    # Force scipy for cdf approach  (self._err_cdf_p(w0_i, p_i))
+                    err_i = self.cdf(w0_i, cdf_approach='scipy') - p_i[0]
+                    solution_i = root(self._err_cdf_p, w0_i, args=(p_i))
+                    merr_i = np.max(np.abs(solution_i.fun))
                 assert merr_i <= tol, f'Error! Root finding had a max error {merr_i} which exceeded tolerance {tol} for iteration {i}'
                 w[i] = solution_i.x
                 if verbose:
