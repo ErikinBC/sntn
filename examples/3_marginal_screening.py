@@ -91,6 +91,8 @@ res_sim = res_sim.merge(df_snr,'left')
 res_sim = res_sim.assign(reject=lambda x: x['pval'] < alpha)
 res_sim = res_sim.assign(snr10 = lambda x: np.log10(x['snr']))
 res_sim.to_csv(os.path.join('examples','marginal_screening_sim.csv'),index=False)
+if 'res_sim' not in dir():
+    res_sim = pd.read_csv(os.path.join('examples','marginal_screening_sim.csv'))
 
 
 ############################

@@ -5,7 +5,14 @@ Post selection inference classes (wrapper for workhorse classes)
 # External
 import numpy as np
 # Internal
-from sntn._posi import _posi_marginal_screen
+from sntn._posi import _posi_marginal_screen, _posi_lasso
+
+
+"""See _posi_lasso and _data_carve from sntn._posi"""
+class lasso(_posi_lasso):
+    def __init__(self, lam:float, y:np.ndarray, x:np.ndarray, **kwargs):
+        super().__init__(lam, y, x, **kwargs)
+
 
 
 """See _posi_marginal_screen and _data_carve from sntn._posi"""
