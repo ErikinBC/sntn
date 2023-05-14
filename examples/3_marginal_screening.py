@@ -48,11 +48,11 @@ for j, snr in enumerate(snr_seq):
     for i in range(nsim):
         # Draw data
         idx += 1
-        y, x, beta0, beta1 = dgp_sparse_yX(n, p, s, intercept=b0, snr=snr, seed=idx+3500, return_params=True)
+        y, x, beta0, beta1 = dgp_sparse_yX(n, p, s, intercept=b0, snr=snr, seed=idx, return_params=True)
         # Loop over the difference frac to split
         for frac_split in frac_split_seq:
             # (i) Split x into screening and split
-            split_marginal = marginal_screen(k, y, x, frac_split=frac_split)
+            split_marginal = marginal_screen(k, y, x, frac_split=frac_split, seed=idx)
             
             # (ii) Calculate the ground truth parameters on "selected" model
             idx_noise = ~(np.array(split_marginal.cidx_screen) < s)
