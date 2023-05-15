@@ -303,7 +303,7 @@ class _posi_lasso(_split_yx):
                 cdf_approach = 'owen'
             else:
                 cdf_approach = kwargs['cdf_approach']
-            self.dist_carve = nts(null_beta, tau21, null_beta, tau22, a, b, c1, c2, cdf_approach=cdf_approach)
+            self.dist_carve = nts(null_beta, tau21, None, tau22, a, b, c1, c2, fix_mu=True, cdf_approach=cdf_approach)
             # Calculate terms for dataframe
             pval = self.dist_carve.cdf(bhat_carve)
             # Condition on the direction to test (otherwise screening will show more power unfairly)

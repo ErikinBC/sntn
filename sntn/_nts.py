@@ -263,8 +263,7 @@ class _nts():
                     p_ij = p[i,j]
                     solution_ij = root(fun_j, w0_ij, args=(p_ij))
                     merr_ij = np.max(np.abs(solution_ij.fun))
-                    if merr_ij > tol:
-                        breakpoint()
+                    assert merr_ij < tol
                     w[i,j] = solution_ij.x[0]
                     if verbose:
                         ncomp = i*self.k + (j+1)
