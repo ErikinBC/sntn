@@ -1,7 +1,7 @@
 """
 Shows how to use the nts class to answer the question posed in the 1964 issue of Technometrics: https://www.jstor.org/stable/1266101?seq=1
 
-python3 -m examples.technometrics
+python3 -m examples.1_technometrics
 """
 
 # External
@@ -9,7 +9,6 @@ import numpy as np
 from scipy.stats import norm
 # Internal
 from sntn.dists import nts
-from sntn._cdf_bvn._utils import cdf_to_orthant
 
 # Parameters of the distribution
 mu1, tau21 = 100, 6**2

@@ -147,12 +147,12 @@ def test_nts_ppf(shape:tuple or list, ndraw:int=1000000, tol_err:float=2e-2) -> 
     # Percentiles to check
     p_seq = np.arange(0.01,1,0.01)
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
     x = dist.rvs(ndraw, seed)
     # Get the empirical quantile
     emp_q = np.quantile(x, p_seq, axis=0)
     # Get the theoretical quantile
-    theory_q = dist.ppf(p_seq, method='root_loop', verbose=True, verbose_iter=50)
+    theory_q = dist.ppf(p_seq, verbose=True, verbose_iter=50)
     # Compare the errors
     maerr = np.abs(emp_q - theory_q).max()
     assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
@@ -238,11 +238,6 @@ if __name__ == "__main__":
     shape_test = params_shape[2]
     alpha_test = params_alpha[1]
     
-    print('--- test_nts_conf_int ---')
-    # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
-    # Try Owen's method to make sure that scipy backup works as expected
-    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
-
     print('--- test_nts_rvs ---')
     test_nts_rvs(shape=shape_test)
     
@@ -255,5 +250,9 @@ if __name__ == "__main__":
     print('--- test_nts_ppf ---')
     test_nts_ppf(shape=shape_test)
 
+    print('--- test_nts_conf_int ---')
+    # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
+    # Try Owen's method to make sure that scipy backup works as expected
+    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')
