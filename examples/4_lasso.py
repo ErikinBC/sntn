@@ -25,12 +25,15 @@ b0 = +1  # Intercept
 alpha = 0.1
 lam_max_frac = 0.725
 # Number of simulations per snr
-nsim = 10
+nsim = 500
 n_snr = 7
 frac_split_seq = [0.15, 0.20, 0.25]
 n_perm = n_snr*nsim
 snr_seq_log10 = np.linspace(-1, +1, n_snr)
 snr_seq = np.exp(snr_seq_log10 * np.log(10))
+df_snr = pd.DataFrame({'noise':False, 'snr':snr_seq, 'beta':np.sqrt(snr_seq / s)})
+df_snr = pd.concat(objs=[df_snr.assign(noise=True,beta=0),df_snr])
+
 
 # Suppress selection warnings
 import warnings
@@ -64,7 +67,8 @@ for j, snr in enumerate(snr_seq):
             n_screened = np.sum(~idx_noise)
             sigma2_gt = 1 + (s-n_screened)*beta1[0]**2
             beta_gt = np.where(idx_noise, 0, beta1[0])
-            if len(split_lasso.cidx_screen) <= 1:
+            if len(split_lasso.cidx_screen) < 1:
+                # Ignore null set
                 continue
 
             # (iii) Do naive inference (type-I errors shuold be inflated)
@@ -73,7 +77,7 @@ for j, snr in enumerate(snr_seq):
             ols_naive_i = ols_naive_i[['bhat','pval','cidx','mdl']]
             
             # (iv) Run PoSI inference for screened data
-            any_split = frac_split > 0
+            any_split = hasattr(split_lasso, 'ols_split')
             split_lasso.run_inference(alpha, 0, sigma2_gt, run_carve=any_split, run_split=any_split, run_ci=False)
             tnorm_screen_i = split_lasso.res_screen.assign(cidx=split_lasso.cidx_screen, mdl='screen')
            
@@ -93,12 +97,22 @@ for j, snr in enumerate(snr_seq):
             rate = idx / dtime
             seta = (n_perm - idx)/rate
             print(f'Simulation {idx} of {n_perm} (ETA={seta:0.0f} seconds)')
+# Combine number selected
 res_nsel = pd.concat(holder_nsel).reset_index(drop=True)
 res_nsel = res_nsel.assign(n_split=lambda x: (x['frac']*n).astype(int))
 res_nsel = res_nsel.assign(no_sel=lambda x: x['p']==0)
 res_nsel = res_nsel.assign(no_inf=lambda x: x['n_split'] < x['p'] + 1)
 print(res_nsel.groupby(['snr','frac'])[['no_sel','no_inf']].mean().round(2))
-breakpoint()
+# Combine inerence
+res_sim = pd.concat(holder_sim).reset_index(drop=True)
+res_sim['noise'] = ~(res_sim['cidx'] < s)
+res_sim = res_sim.merge(df_snr,'left')
+# res_sim = res_sim.assign(cover=lambda x: (x['lb'] <= x['beta']) & (x['ub'] >= x['beta']))
+res_sim = res_sim.assign(reject=lambda x: x['pval'] < alpha)
+res_sim = res_sim.assign(snr10 = lambda x: np.log10(x['snr']))
+res_sim.to_csv(os.path.join('examples','lasso.csv'),index=False)
+print(res_sim.groupby(['noise','mdl'])['reject'].agg({'mean','count'}).round(2))
+
 
 
 

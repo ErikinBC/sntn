@@ -17,7 +17,7 @@ from sntn.utilities.utils import get_valid_kwargs_cls, cvec, rvec
 
 
 class _posi_lasso(_split_yx):
-    def __init__(self, lam:float, y:np.ndarray, x:np.ndarray, kkt_tol:float=1e-4, **kwargs):
+    def __init__(self, lam:float, y:np.ndarray, x:np.ndarray, kkt_tol:float=5e-4, **kwargs):
         super().__init__(y, x, **get_valid_kwargs_cls(_split_yx, **kwargs))
         """
         Carries out selective inference for the Lasso problem
@@ -53,7 +53,7 @@ class _posi_lasso(_split_yx):
             self.ols_screen = ols(self.y_screen, self.x_screen[:,self.cidx_screen], **ols_kwargs)
             if self.frac_split > 0:
                 n_split = self.x_split.shape[0]
-                if n_split > self.n_cidx_screened + 1:
+                if n_split >= self.n_cidx_screened + 1:
                     self.ols_split = ols(self.y_split, self.x_split[:,self.cidx_screen], **ols_kwargs)
                 else:
                     warn(f'A total of {self.n_cidx_screened} columns were screened for testing, but we only have {n_split} observations (classical inference is not possible)')
@@ -128,12 +128,9 @@ class _posi_lasso(_split_yx):
         assert np.abs(np.mean(eps_screen)) < self.kkt_tol
         kkt_subgrab = self.x_screen.T.dot(eps_screen) / self.x_screen.shape[0]
         err_M = np.max(np.abs(kkt_subgrab[self.cidx_screen]) - self.lam)
-        try:
-            assert err_M < self.kkt_tol, f'Expected selected covariates to have inner product values of {self.lam}, found error of {err_M}'
-        except:
-            breakpoint()
+        assert err_M < self.kkt_tol, f'Expected selected covariates to have inner product values of {self.lam}, found error of {err_M}'
         err_nM = np.min(self.lam - np.abs(np.delete(kkt_subgrab,self.cidx_screen)))
-        assert err_nM > self.kkt_tol, f'Expected non-selected variables to have at least {self.kkt_tol} values larger than zero, found {err_nM} instead'
+        assert err_nM > 0, f'Expected non-selected variables to have at least {self.kkt_tol} values larger than zero, found {err_nM} instead'
 
         # (ii) Calculate A1/b1
         if partial:
@@ -199,8 +196,16 @@ class _posi_lasso(_split_yx):
             resid_i = np.dot(I_n - np.outer(v_i,v_i), y_M)
             rho_i = np.dot(A, v_i)
             vec_i = (b.flat - np.dot(A, resid_i))/rho_i
-            vlo_i = np.max(vec_i[rho_i < 0])
-            vup_i = np.min(vec_i[rho_i > 0])
+            idx_neg_i = rho_i < 0
+            idx_pos_i = rho_i > 0
+            if idx_neg_i.any():
+                vlo_i = np.max(vec_i[idx_neg_i])
+            else:
+                vlo_i = -np.inf
+            if idx_pos_i.any():
+                vup_i = np.min(vec_i[rho_i > 0])
+            else:
+                vup_i = +np.inf
             # Store
             targets[i], den[i] = target_i, den_i
             V_low[i], V_high[i] = vlo_i, vup_i
@@ -265,11 +270,7 @@ class _posi_lasso(_split_yx):
         # -- (iii) Calculate truncated normal for screened distribution -- #
         if run_screen:
             # Get the Truncated normal parameters
-            try:
-                eta2var, v_neg, v_pos = self._inference_on_screened(sigma2)
-            except:
-                breakpoint()
-                eta2var, v_neg, v_pos = self._inference_on_screened(sigma2)
+            eta2var, v_neg, v_pos = self._inference_on_screened(sigma2)
             dist_null = tnorm(null_beta, eta2var, v_neg, v_pos)
             # Assumes all values are positive
             bhat_M = self.ols_screen.linreg.coef_

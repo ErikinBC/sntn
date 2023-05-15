@@ -10,7 +10,7 @@ x = as.matrix(dat[,-1])
 n = length(y)
 
 # Fit lasso
-lam = 0.19049267214559829
+lam = 0.3154675503852345
 mdl_glmnet = glmnet(x, y, 'gaussian', lambda = lam)
 bhat_lasso = as.vector(mdl_glmnet$beta)
 bhat_M = bhat_lasso[bhat_lasso != 0]
