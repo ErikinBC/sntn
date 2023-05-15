@@ -25,7 +25,7 @@ b0 = +1  # Intercept
 alpha = 0.1
 lam_max_frac = 0.725
 # Number of simulations per snr
-nsim = 100
+nsim = 10
 n_snr = 7
 frac_split_seq = [0.15, 0.20, 0.25]
 n_perm = n_snr*nsim
@@ -64,6 +64,8 @@ for j, snr in enumerate(snr_seq):
             n_screened = np.sum(~idx_noise)
             sigma2_gt = 1 + (s-n_screened)*beta1[0]**2
             beta_gt = np.where(idx_noise, 0, beta1[0])
+            if len(split_lasso.cidx_screen) <= 1:
+                continue
 
             # (iii) Do naive inference (type-I errors shuold be inflated)
             split_lasso.ols_screen.run_inference(alpha, 0, sigma2_gt)
@@ -73,18 +75,19 @@ for j, snr in enumerate(snr_seq):
             # (iv) Run PoSI inference for screened data
             any_split = frac_split > 0
             split_lasso.run_inference(alpha, 0, sigma2_gt, run_carve=any_split, run_split=any_split, run_ci=False)
-            tnorm_screen_i = split_lasso.res_screen.assign(cidx=split_marginal.cidx_screen, mdl='screen')
+            tnorm_screen_i = split_lasso.res_screen.assign(cidx=split_lasso.cidx_screen, mdl='screen')
+           
+           # (v) Run data carving (if at all)
+            nts_carve_i, gauss_split_i = pd.DataFrame({}), pd.DataFrame({})
+            if any_split:
+                gauss_split_i = split_lasso.res_split.drop(columns=['lb','ub']).assign(mdl='split')
+                nts_carve_i = split_lasso.res_carve.assign(cidx=split_lasso.cidx_screen, mdl='carve')
+            # Combine and save
+            res_screen_i = pd.concat(objs=[ols_naive_i, tnorm_screen_i, gauss_split_i, nts_carve_i])
+            res_screen_i = res_screen_i.assign(snr=snr, sim=i, frac_split=frac_split)
+            holder_sim.append(res_screen_i)
             
-            # nts_carve_i, gauss_split_i = pd.DataFrame({}), pd.DataFrame({})
-            # if any_split:
-            #     gauss_split_i = split_marginal.res_split.drop(columns=['lb','ub']).assign(mdl='split')
-            #     nts_carve_i = split_marginal.res_carve.assign(cidx=split_marginal.cidx_screen, mdl='carve')
-            # # Combine and save
-            # res_screen_i = pd.concat(objs=[ols_naive_i, tnorm_screen_i, gauss_split_i, nts_carve_i])
-            # res_screen_i = res_screen_i.assign(snr=snr, sim=i, frac_split=frac_split)
-            # holder_sim.append(res_screen_i)
-
-        breakpoint()
+        # Print time updates
         if idx % 25 == 0:
             dtime = time() - stime
             rate = idx / dtime
@@ -98,30 +101,4 @@ print(res_nsel.groupby(['snr','frac'])[['no_sel','no_inf']].mean().round(2))
 breakpoint()
 
 
-
-        #     # (ii) Calculate the ground truth parameters on "selected" model
-        #     idx_noise = ~(np.array(split_marginal.cidx_screen) < s)
-        #     n_screened = np.sum(~idx_noise)
-        #     sigma2_gt = 1 + (s-n_screened)*beta1[0]**2
-        #     beta_gt = np.where(idx_noise, 0, beta1[0])
-            
-        #     # (iii) Do naive inference (type-I errors shuold be inflated)
-        #     split_marginal.ols_screen.run_inference(alpha, 0, sigma2_gt)
-        #     ols_naive_i = split_marginal.ols_screen.res_inf.assign(cidx=split_marginal.cidx_screen, mdl='naive')
-        #     ols_naive_i = ols_naive_i[['bhat','pval','cidx','mdl']]
-
-        #     # (iv) Run PoSI inference for screened data
-        #     any_split = frac_split > 0
-        #     split_marginal.run_inference(alpha, 0, sigma2_gt, run_carve=any_split, run_split=any_split, run_ci=False)
-        #     tnorm_screen_i = split_marginal.res_screen.assign(cidx=split_marginal.cidx_screen, mdl='screen')
-            
-        #     nts_carve_i, gauss_split_i = pd.DataFrame({}), pd.DataFrame({})
-        #     if any_split:
-        #         gauss_split_i = split_marginal.res_split.drop(columns=['lb','ub']).assign(mdl='split')
-        #         nts_carve_i = split_marginal.res_carve.assign(cidx=split_marginal.cidx_screen, mdl='carve')
-        #     # Combine and save
-        #     res_screen_i = pd.concat(objs=[ols_naive_i, tnorm_screen_i, gauss_split_i, nts_carve_i])
-        #     res_screen_i = res_screen_i.assign(snr=snr, sim=i, frac_split=frac_split)
-        #     holder_sim.append(res_screen_i)
-        
 

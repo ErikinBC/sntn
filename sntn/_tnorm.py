@@ -254,6 +254,12 @@ class _tnorm():
         """
         solver = conf_inf_solver(dist=_tnorm, param_theta='mu',dF_dtheta=self._dmu_dcdf, alpha=alpha)
         # Set up di_dist_args (these go into the tnorm class basically)
+        if 'sigma2' not in kwargs:
+            kwargs['sigma2'] = self._truncnorm.sigma**2
+        if 'a' not in kwargs:
+            kwargs['a'] = self._truncnorm.a
+        if 'b' not in kwargs:
+            kwargs['b'] = self._truncnorm.b
         sigma2, a, b, a_min, a_max, kwargs = self._find_dist_kwargs_CI(**kwargs)
         di_dist_args = {'sigma2':sigma2, 'a':a, 'b':b, 'a_min':a_min, 'a_max':a_max}
         di_dist_args['approx'] = approx

@@ -109,7 +109,7 @@ class _posi_marginal_screen(_split_yx):
         return mat_A
         
 
-    def inference_on_screened(self, sigma2:float or int) -> tuple:
+    def _inference_on_screened(self, sigma2:float or int) -> tuple:
         """
         Runs post selection inference for the screened variables
 
@@ -191,7 +191,7 @@ class _posi_marginal_screen(_split_yx):
                 
         # -- (iii) Calculate truncated normal for screened distribution -- #
         if run_screen:
-            alph_den, v_neg, v_pos = self.inference_on_screened(sigma2)
+            alph_den, v_neg, v_pos = self._inference_on_screened(sigma2)
             self.dist_screen = tnorm(null_beta, alph_den, v_neg, v_pos)
             # Add on the p-values and conf-int's
             bhat_S = self.ols_screen.linreg.coef_
