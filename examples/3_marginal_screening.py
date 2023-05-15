@@ -155,7 +155,6 @@ gg_type2 = (pn.ggplot(dat_type2, pn.aes(x='snr10', y='err', color='mdl',linetype
 gg_type2.save(os.path.join(dir_figures, 'marginal_screening_type2.png'), width=5, height=4)
 
 
-
 # (ii) Calculate selection prob
 res_sel = res_sim.query('mdl=="screen"').groupby(cn_gg3)['noise'].agg({'sum','count'}).assign(n=lambda x: x['count']-x['sum'],tot=lambda x: s*nsim).drop(columns=['count','sum']).assign(pct=lambda x: x['n']/x['tot']).reset_index()
 res_sel = get_CI(res_sel, cn_den='tot', cn_num='n', alpha=alpha)

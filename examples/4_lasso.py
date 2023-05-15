@@ -113,6 +113,78 @@ res_sim = res_sim.assign(snr10 = lambda x: np.log10(x['snr']))
 res_sim.to_csv(os.path.join('examples','lasso.csv'),index=False)
 print(res_sim.groupby(['noise','mdl'])['reject'].agg({'mean','count'}).round(2))
 
+if 'res_sim' not in dir():
+    res_sim = pd.read_csv(os.path.join('examples','lasso.csv'))
 
 
+############################
+# --- (2) PLOT RESULTS --- #
 
+# Plotting libraries
+import plotnine as pn
+from mizani.formatters import percent_format
+
+# Shared terms
+di_mdl = {'naive':'Naive OLS', 'carve':'Data carving', 'screen':'PoSI', 'split':'Sample splitting'}
+di_noise1 = {'False':'True signal', 'True':'Noise'}
+di_noise2 = {'False':'Type-II', 'True':'Type-I'}
+di_frac = dict(zip([str(frac) for frac in frac_split_seq],[f'Split={100*frac:0.0f}%' for frac in frac_split_seq]))
+cn_agg = {'mean','sum','count'}
+cn_gg1 = ['noise','mdl','snr10','frac_split']
+cn_gg2 = ['noise','snr10','frac_split']
+cn_gg3 = ['snr10','frac_split']
+
+# (i) Calculate type-I/II error
+res_type12 = res_sim.groupby(cn_gg1)['reject'].agg(cn_agg).reset_index()
+res_type12.rename(columns={'mean':'err'}, inplace=True)
+# If covariate is noise, keep type-1 error, if not, convert power to type-II error
+res_type12 = res_type12.assign(err=lambda x: np.where(x['noise'], x['err'], 1-x['err']))
+res_type12 = get_CI(res_type12, cn_den='count', cn_pct='err', alpha=alpha)
+res_type12.drop(columns=cn_agg,errors='ignore', inplace=True)
+
+# (ii) Plot the type-I error
+dat_type1 = res_type12.query('noise').drop(columns='noise').reset_index(drop=True)
+dat_type1['mdl'] = pd.Categorical(dat_type1['mdl'],list(di_mdl))
+dat_type2 = res_type12.query('~noise & mdl!="naive"').drop(columns='noise').reset_index(drop=True)
+dat_type2['mdl'] = pd.Categorical(dat_type2['mdl'],list(di_mdl)).remove_unused_categories()
+
+colz1 = ["black", "#F8766D", "#00BA38", "#619CFF"]
+colz2 = colz1[1:]
+
+gg_type1 = (pn.ggplot(dat_type1, pn.aes(x='snr10', y='err', color='mdl')) + 
+            pn.theme_bw() + 
+            pn.geom_point() + pn.geom_line() + 
+            pn.geom_linerange(pn.aes(ymin='lb',ymax='ub')) + 
+            pn.labs(x='log10(SNR)', y='Type-I Error') + 
+            pn.scale_color_manual(name='Inference', values=colz1, labels=lambda x: [di_mdl.get(z) for z in x]) + 
+            pn.scale_y_continuous(labels=percent_format()) + 
+            pn.geom_hline(yintercept=alpha, color='black', linetype='--') + 
+            pn.theme(legend_position=(0.5,-0.1)) + 
+            pn.facet_wrap('~frac_split',labeller=pn_labeller(frac_split=lambda x: di_frac.get(x,x))))
+gg_type1.save(os.path.join(dir_figures, 'lasso_type1.png'), width=9, height=3)
+
+# Repeat for type2
+gg_type2 = (pn.ggplot(dat_type2, pn.aes(x='snr10', y='err', color='mdl',linetype='frac_split.astype(str)')) + 
+            pn.theme_bw() + 
+            pn.geom_point() + pn.geom_line() + 
+            pn.geom_linerange(pn.aes(ymin='lb',ymax='ub')) + 
+            pn.labs(x='log10(SNR)', y='Type-2 Error') + 
+            pn.scale_color_manual(name='Inference', values=colz2,labels=lambda x: [di_mdl.get(z) for z in x]) + 
+            pn.scale_linetype_discrete(name='Fraction',labels=lambda x: [di_frac.get(z) for z in x] ) + 
+            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]) + 
+            pn.theme(legend_position=(0.5,-0.10)))
+gg_type2.save(os.path.join(dir_figures, 'lasso_type2.png'), width=5, height=4)
+
+
+# (ii) Calculate selection prob
+res_sel = res_sim.query('mdl=="screen"').groupby(cn_gg3)['noise'].agg({'sum','count'}).assign(n=lambda x: x['count']-x['sum'],tot=lambda x: s*nsim).drop(columns=['count','sum']).assign(pct=lambda x: x['n']/x['tot']).reset_index()
+res_sel = get_CI(res_sel, cn_den='tot', cn_num='n', alpha=alpha)
+res_sel = res_sel.rename(columns={'pct':'sel_prob'}).drop(columns=cn_agg,errors='ignore')
+gg_selprob = (pn.ggplot(res_sel, pn.aes(x='snr10', y='sel_prob', color='frac_split.astype(str)')) + 
+            pn.theme_bw() + pn.geom_point() + pn.geom_line() + 
+            pn.geom_linerange(pn.aes(ymin='lb',ymax='ub')) + 
+            pn.labs(x='log10(SNR)', y='Selection prob') + 
+            pn.scale_color_discrete(name='Fraction',labels=lambda x: [di_frac.get(z) for z in x] ) + 
+            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]) + 
+            pn.theme(legend_position=(0.5,-0.17)))
+gg_selprob.save(os.path.join(dir_figures, 'lasso_selprob.png'), width=4.5, height=3)
