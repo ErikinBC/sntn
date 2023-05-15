@@ -21,12 +21,6 @@ alpha = 0.1  # Type-I error rate
 ##############################
 # --- (1) DATA LOAD/PREP --- #
 
-# # Load riboflaving dataset
-# y = pd.read_csv('riboflavin_y.csv',usecols=['V1'])['V1']
-# x = pd.read_csv('riboflavin_x.csv',index_col=[0])
-# y.index = x.index
-# di_x_cn = dict(zip(range(x.shape[1]),x.columns.str.replace('_at','',regex=False)))
-
 # Load the diabetes data
 diabetes = load_diabetes()
 y = diabetes.target.copy()
@@ -109,6 +103,6 @@ gg_ribo_CI = (pn.ggplot(res_ribo_sigma2j, pn.aes(x='cidx',y='bhat',color='frac.a
     pn.scale_color_discrete(name='Inference',labels=lambda x: [di_split.get(z) for z in x]) + 
     pn.labs(y='Confidence interval',x='Feature') + 
     pn.theme(axis_text_x=pn.element_text(angle=90)))
-gg_ribo_CI.save(os.path.join(dir_figures, 'riboflavin.png'), width=4.5, height=3.4)
+gg_ribo_CI.save(os.path.join(dir_figures, 'diabetes.png'), width=4.5, height=3.4)
 
 
