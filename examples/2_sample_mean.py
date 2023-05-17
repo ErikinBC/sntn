@@ -112,10 +112,10 @@ di_methods = {'split':'Sample-splitting', 'screen':'PoSI', 'carve':'Data carving
 # (i) How does power compare
 gg_power_comp = (pn.ggplot(res_type2, pn.aes(x='n', y='power', color='method')) + 
     pn.theme_bw()  + pn.geom_line(size=1) + 
-    pn.labs(y='Power', x='Samples for split') + 
+    pn.labs(y='Power', x='Sample size') + 
     pn.scale_color_discrete(name='Inference',labels=lambda x: [di_methods.get(z) for z in x]) + 
     pn.geom_hline(yintercept=alpha,linetype='--') + 
-    pn.scale_y_continuous(labels=percent_format()) + 
+    pn.scale_y_continuous(labels=percent_format(),limits=[0,1]) + 
     pn.facet_wrap('~mu', labeller=pn.label_both))
 gg_power_comp.save(os.path.join(dir_figures, 'power_mean_comp.png'),width=6,height=5)
 
