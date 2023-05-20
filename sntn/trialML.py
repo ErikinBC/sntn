@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.stats import norm, chi2
 from scipy.stats import t as stud_t
 # Internal modules
-from sntn.dists import SNTS
+from sntn.dists import nts
 
 
 class two_stage():
@@ -31,12 +31,11 @@ class two_stage():
         mn_ratio = m / n
         mu_2stage = np.array([0, -np.sqrt(mn_ratio)*self.phi_inv])
         tau_2stage = np.sqrt([1, mn_ratio])
-        self.H0 = SNTS(mu=mu_2stage,tau=tau_2stage, a=0, b=np.infty)
-        self.HA = SNTS(mu=mu_2stage,tau=tau_2stage, a=-np.infty, b=0)
+        self.H0 = nts(mu=mu_2stage,tau=tau_2stage, a=0, b=np.infty)
+        self.HA = nts(mu=mu_2stage,tau=tau_2stage, a=-np.infty, b=0)
         self.t_alpha = self.H0.ppf(alpha)
         self.power = self.HA.cdf(self.t_alpha)
 
-    # self = dist_2s; nsim=100000; delta=2; sigma2=4; seed=None
     def rvs(self, nsim, delta, sigma2, seed=None):
         if seed is None:
             seed = nsim
