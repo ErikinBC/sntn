@@ -6,3 +6,6 @@ xy_screen.csv
 *.csv
 *.Rhistory
 *.ipynb_checkpoints*
+sntn.egg-info
+build/
+dist/

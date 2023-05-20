@@ -6,14 +6,11 @@ Utility functions
 import os
 import numpy as np
 import pandas as pd
-from mizani.transforms import trans
 from collections.abc import Iterable
 from typing import Type, Callable, Tuple
 from inspect import getfullargspec, signature
-from statsmodels.stats.proportion import proportion_confint as prop_CI
 
 # Return lb/ub confidence intervals on a binomial proportion
-# df=res_cover;cn_den='count';cn_pct='mean';cn_num=None;method='beta'
 def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None or str=None, cn_num:None or str=None, alpha:float=0.05, method='beta') -> pd.DataFrame:
     """
     Add on the binomial proportion CI to an existing DataFrame. User must specify either the percent of successes (cn_pct) or number of successes (cn_num)
@@ -26,6 +23,7 @@ def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None or str=None, cn_num:None or 
     alpha:              Type-I error rate
     method:             See proportion_confint(method=...)
     """
+    from statsmodels.stats.proportion import proportion_confint as prop_CI
     assert (cn_pct is not None) or (cn_num is not None), 'At least one of cn_{pct,num} must be specified'
     num_tries = df[cn_den].copy()
     if cn_pct is not None:  # count can be unknown
@@ -274,7 +272,7 @@ def pn_labeller(rows=None, cols=None, multi_line=True, **kwargs):
     return _labeller
 
 
-class pseudo_log10(trans):
+class pseudo_log10():
     """
     Implements the pseudo-log10 transform: https://win-vector.com/2012/03/01/modeling-trick-the-signed-pseudo-logarithm/
     """

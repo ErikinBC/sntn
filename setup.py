@@ -6,7 +6,7 @@ README = (dir_here / 'readme.md').read_text()
 
 setup(
     name='sntn',
-    version='0.0.1',    
+    version='0.0.4',    
     description='Sum of a normal and a truncated Normal (SNTN)',
     long_description=README,
     long_description_content_type="text/markdown",
@@ -18,7 +18,7 @@ setup(
     packages=['sntn'],
     package_data={'sntn': ['/*','examples/*','tests/*', 'simulations/*']},
     include_package_data=True,
-    install_requires=['numpy', 'pandas', 'glmnet', 'scipy'],
+    # install_requires=['numpy<=1.24.2', 'pandas<=2.0.0', 'glmnet<=2.2.1', 'scipy<=1.9.3'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Science/Research',

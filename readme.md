@@ -24,9 +24,16 @@ $$
 
 # Installation
 
-see pypi.
+See [pypi](https://github.com/ErikinBC/sntn). 
 
-To check that the package compiled properly, please run `python3 -m sntn`.
+**Please make sure you have atleast python>=3.11!**
+
+1. numpy<=1.24.2
+2. pandas<=2.0.0
+3. scipy<=1.9.3
+4. glmnet<=2.2.1
+
+I recommend using `conda install -c conda-forge glmnet`. To check that the package compiled properly, please run `python3 -m sntn`.
 
 <br>
 
