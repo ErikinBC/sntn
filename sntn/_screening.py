@@ -87,7 +87,7 @@ class _posi_marginal_screen(_split_yx):
         self.sig2hat = (1-self.frac_split)*sig2hat_screen + self.frac_split*sig2hat_split
         
 
-    def get_A(self) -> np.ndarray:
+    def _get_A(self) -> np.ndarray:
         """
         Calculates the A from Ay <= b for the marginal screening proceedure
         
@@ -118,7 +118,7 @@ class _posi_marginal_screen(_split_yx):
         A tuple containing (alph_den, v_neg, v_pos) which is equivalent to the tnorm(; sigma2, a, b) terms
         """
         # See Lee (2014) for derivations of key terms
-        mat_A = self.get_A()
+        mat_A = self._get_A()
         x_s = self.x_screen[:,self.cidx_screen]
         # assert all([isclose(xmu,0) for xmu in x_s.mean(0)]), 'Expected x_s to be de-meaned'
         # eta: The direction column span of x to be tested (k,n)
@@ -219,13 +219,13 @@ class _posi_marginal_screen(_split_yx):
                 cdf_approach = 'owen'
             else:
                 cdf_approach = kwargs['cdf_approach']
-            self.dist_carve = nts(null_beta, tau21, null_beta, tau22, a, b, c1, c2, cdf_approach=cdf_approach)
+            self.dist_carve = nts(null_beta, tau21, None, tau22, a, b, c1, c2, cdf_approach=cdf_approach, fix_mu=True)
             # Calculate terms for dataframe
             pval = self.dist_carve.cdf(bhat_carve)
             pval = 2*np.minimum(pval, 1-pval)
             self.res_carve = pd.DataFrame({'cidx':self.cidx_screen, 'bhat':bhat_carve, 'pval':pval})
             if run_ci:
-                ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach= cdf_approach)
+                ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach=cdf_approach)
                 ci_lbub = np.squeeze(ci_lbub)
                 self.res_carve['lb'] = ci_lbub[:,0]
                 self.res_carve['ub'] = ci_lbub[:,1]
