@@ -14,7 +14,12 @@ To check that the package compiled properly, please run `python3 -m sntn`.
 
 # main classes
 
-1. `dists.nts`: main class for the doing inference of a SNTN distribution
+1. `dists.nts(mu1, tau21, mu2, tau22, a, b, c1, c2)`: main class for the doing inference on a SNTN distribution, with the usual scipy-like methods: `cdf`, `pdf`, `ppf`, and `rvs` as well as a `conf_int` method for generating exact confidence intervals.
+2. `dists.tnorm(mu, sigma2, a, b)`: Wrapper for key methods of a truncated normal from the `scipy.stats.truncnorm` class along with a `conf_int` method to generate exact confidence intervals for a truncated normal distribution (which can be used by a 100%-screening approach for PoSI) and matches the intervals that will get produced by the [selectiveInference package](https://cran.r-project.org/web/packages/selectiveInference/). Note that this class accepts the lower/upper bounds as is, and does not require them to be transformed in advance (as scipy does).
+3. `dists.bvn(mu1, sigma21, mu2, sigma22, rho)`:  Custom bivariate normal (BVN) distribution with `cdf` and `rvs` methods. Uses can pass `cdf_approach={scipy, cox1, cox2, owen, drezner1, drezner2}` as a kwarg, with the defaul set to owen (which uses the Owens-T, and is very fast, but can be numerically instable if $|\rho| \approx 1$).
+4. `posi.lasso(frac_split=0.0)`: When `frac_split=0.0`, then this is equivalent to using 100%-screening approach for PoSI.
+5. `posi.marginal_screen(frac_split=0.0)`: 
+6. `trialML.two_stage`: 
 
 # Folder structure of this repo
 
@@ -26,9 +31,7 @@ To check that the package compiled properly, please run `python3 -m sntn`.
 
 # Toy examples
 
-## (i) Conditional null hypothesis testing
-
-## (ii) Filtering regime
+## (i) Filtering regime
 
 Suppose an industrial process combines two parts together, but the first part is only kept if it's length exceeds a certain value. According to existing guidelines that first piece should be N(50,3) and if only kepy if >=50, and the second piece should be N(70,5). The code block below tests the power of the `SNTN` class to detect whether this distribution actually conforms to our null distribution: $SNT(\mu_1=50,\mu_2=70,\sigma_1=3,\sigma_2=5,a=50,b=\infty)$:
 
@@ -39,7 +42,10 @@ from sntn.dists import sntn
 ....
 ```
 
-### (iii) Data carving
+### (ii) Data carving
+
+
+## (iii) Conditional null hypothesis testing
 
 
 # unittesting

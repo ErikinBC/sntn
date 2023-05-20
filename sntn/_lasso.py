@@ -37,7 +37,7 @@ class _posi_lasso(_split_yx):
         # Run the Lasso
         xtil, self.xmu_screen, self.xstd_screen = self._normalize_x(self.x_screen, return_mu_sd=True)
         lam_max = np.max( np.abs(xtil.T.dot(self.y_screen)) / len(xtil) )
-        kwargs_lasso = {'alpha':1, 'n_splits':0, 'standardize':False, 'lambda_path':np.array([lam_max,lam])}
+        kwargs_lasso = {'alpha':1, 'n_splits':0, 'standardize':False, 'tol':1e-20, 'lambda_path':np.array([lam_max,lam])}
         kwargs_lasso = {**kwargs_lasso, **get_valid_kwargs_cls(ElasticNet, **kwargs)}
         self.mdl_lasso = ElasticNet(**kwargs_lasso)
         self.mdl_lasso.fit(X=xtil, y=self.y_screen)
@@ -64,7 +64,7 @@ class _posi_lasso(_split_yx):
     @staticmethod
     def _normalize_x(x:np.ndarray, return_mu_sd:bool=False):
         """Internal method to normalize x and store scaling terms, if necessary"""
-        mu, sd = x.mean(axis=0), x.std(axis=0)
+        mu, sd = x.mean(axis=0), x.std(axis=0, ddof=1)
         xtil = (x-mu)/sd
         if return_mu_sd:
             return xtil, mu, sd
@@ -133,12 +133,15 @@ class _posi_lasso(_split_yx):
         assert err_nM > 0, f'Expected non-selected variables to have at least {self.kkt_tol} values larger than zero, found {err_nM} instead'
 
         # (ii) Calculate A1/b1
+        n_yscreen = self.y_screen.shape[0]
         if partial:
             sM = np.sign(self.bhat_M)
             x_Mplus = np.dot(self.ols_screen.igram, x_M.T)
             A1 = -np.dot(np.diag(sM), x_Mplus)
             b1 = cvec(-self.lam * np.dot(np.diag(sM), np.dot(self.ols_screen.igram, sM)))
-            assert A1.shape[1] == self.y_screen.shape[0], 'A1 does not align with y'
+            b1 *= n_yscreen
+            assert np.all(A1.dot(self.y_screen) <= b1.flatten()), f'Polyhedral constraint not met for A1 y <= b'
+            assert A1.shape[1] == n_yscreen, 'A1 does not align with y'
             return A1, b1
 
         # (iii) Calculate A0/b0
@@ -151,7 +154,9 @@ class _posi_lasso(_split_yx):
         A0 = (1/self.lam) * np.vstack((A0,-A0))
         b0 = np.dot(np.dot(x_nM.T, x_Mplus.T), sM)
         b0 = cvec(np.hstack((1 - b0, 1 + b0)))
-        assert A0.shape[1] == self.y_screen.shape[0], 'A0 does not align with y'
+        b0 *= n_yscreen
+        assert np.all(A0.dot(self.y_screen) <= b0.flatten()), f'Polyhedral constraint not met for A1 y <= b'
+        assert A0.shape[1] == n_yscreen, 'A0 does not align with y'
 
         # (iv) Combine matrices and return    
         A = np.vstack((A1, A0))
@@ -181,10 +186,9 @@ class _posi_lasso(_split_yx):
         I_n = np.diag(np.ones(n))
         eta_T = np.dot(self.ols_screen.igram, x_M.T)
         sign_vars = np.sign(self.bhat_M)
-        A, b = self._get_Ab(partial)        
-        # Adjust be so that we are solving ||y-Xbeta||_2^2 - lam*||beta||_1 unnormalized by n
-        b = b * n
-
+        # Note, b has been adjusted b/c we are solving ||y-Xbeta||_2^2 - lam*||beta||_1 unnormalized by n
+        A, b = self._get_Ab(partial)
+        
         targets, den = np.zeros(n_active), np.zeros(n_active)
         V_low, V_high = np.zeros(n_active), np.zeros(n_active)
         for i in range(n_active):
@@ -217,7 +221,7 @@ class _posi_lasso(_split_yx):
         mask = sign_vars == -1
         V = np.c_[v_neg, v_pos]
         V[mask] = -V[mask][:,[1,0]]
-        # Return terms        
+        # Return terms
         return eta2var, V[:,0], V[:,1]
 
 

@@ -11,11 +11,11 @@ from sntn.dists import SNTS
 
 
 class two_stage():
-    """
-    Wrapper for performing a two-stage regerssio problem
-    """
     def __init__(self, n:int, m:int, gamma:float, alpha:float=0.05, pool:bool=True, student:bool=True) -> None:
-        # Assign
+        """
+        Wrapper for performing a two-stage regression problem
+        """
+        # Input checks and assign
         assert (n > 1) and (m >= 1) and (gamma > 0) & (gamma < 1)
         self.n, self.m, self.gamma = n, m, gamma
         self.alpha, self.pool = alpha, pool

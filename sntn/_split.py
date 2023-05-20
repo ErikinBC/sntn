@@ -5,7 +5,7 @@ Workhorse class for splitting data to do data carving/unbiased inference
 # External
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import normalize, StandardScaler
+from sklearn.model_selection import train_test_split
 # Internal
 from sntn.utilities.utils import cvec
 
@@ -33,13 +33,14 @@ class _split_yx():
                 # Input checks
         assert len(y) == len(x), 'length of y and x do not align'
         assert isinstance(normalize, bool), 'normalize needs to be a bool'
-        assert isinstance(frac_split, float), 'frac_split needs to be a float'
+        assert isinstance(frac_split, float) or isinstance(frac_split, int), 'frac_split needs to be a float or an int'
         assert (frac_split >= 0) and (frac_split < 1), 'frac_split must be between [0,1)'
         assert isinstance(has_int, bool), 'has_int must be a bool'
         self.normalize = normalize
         self.frac_split = frac_split
         self.has_int = has_int
         self.seed = seed
+        self.has_split = self.frac_split > 0
 
         # Process response and covariates
         self.cn = None
@@ -55,29 +56,27 @@ class _split_yx():
         self.enc_x = None
         
         # Split the data for data carving
-        self.ridx_split = np.array([], dtype=int)
-        self.x_split, self.y_split = self.ridx_split.copy(), self.ridx_split.copy()
-        self.ridx_screen = np.arange(self.n)
-        if self.frac_split > 0:
-            n_split = int(np.floor(self.n * self.frac_split))
-            n_screen = self.n - n_split
-            # Select rows to be used for data carving
-            np.random.seed(self.seed)
-            self.ridx_split = np.random.choice(self.n, n_split, replace=False)
-            self.ridx_screen = np.setdiff1d(self.ridx_screen, self.ridx_split)
-        # Assign the screening arrays
-        self.x_split = x[self.ridx_split]
-        self.x_screen = x[self.ridx_screen]
-        self.y_split = y[self.ridx_split]
-        self.y_screen = y[self.ridx_screen]
-
+        self.holder = np.array([], dtype=int)
+        if self.has_split:
+            self.x_screen, self.x_split, self.y_screen, self.y_split = train_test_split(x, y, test_size=frac_split, random_state=seed)
+        else:
+            self.x_screen, self.y_screen = x, y
+            self.x_split, self.y_split = self.holder.copy(), self.holder.copy()
         # Normalize the matrices if requested
         if normalize:
-            self.x_screen = self.normalize_mat(self.x_screen)
-            if self.frac_split > 0:
-                self.x_split = self.normalize_mat(self.x_split)
+            self.x_screen, mu_screen, se_screen = self.normalize_mat(self.x_screen, return_mu_se=True)
+            if self.has_split:
+                self.x_split = (self.x_split - mu_screen) / se_screen
+
 
     @staticmethod
-    def normalize_mat(mat:np.ndarray) -> np.ndarray:
-        # return normalize(mat, norm='l2', axis=0)
-        return StandardScaler().fit_transform(mat)
+    def normalize_mat(mat:np.ndarray, mu:None or np.ndarray=None, se:None or np.ndarray=None, return_mu_se:bool = False) -> np.ndarray:
+        if mu is None:
+            mu = mat.mean(axis=0)
+        if se is None:
+            se = mat.std(axis=0, ddof=1)
+        res = (mat - mu) / se
+        if return_mu_se:
+            return res, mu, se
+        else:
+            return res
