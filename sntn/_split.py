@@ -66,7 +66,8 @@ class _split_yx():
         if normalize:
             self.x_screen, mu_screen, se_screen = self.normalize_mat(self.x_screen, return_mu_se=True)
             if self.has_split:
-                self.x_split = (self.x_split - mu_screen) / se_screen
+                mu_split = self.x_split.mean(0)
+                self.x_split = (self.x_split - mu_split) / se_screen
 
 
     @staticmethod

@@ -33,11 +33,12 @@ X_B, X_A, y_B, y_A = train_test_split(X, y, test_size=pct_split, random_state=se
 n_A, n_B = len(y_A), len(y_B)
 w_A, w_B = n_A/n, n_B/n
 # Normalize B (which will go into algorithms)
-xmu = X_B.mean(0)
-xse = X_B.std(0,ddof=1)
-Xtil_B = (X_B - xmu) / xse
-# Put A on the same scale as B so the coefficients have the same intepretation
-Xtil_A = (X_A - xmu) / xse
+mu_A = X_A.mean(0)
+mu_B = X_B.mean(0)
+se_B = X_B.std(0,ddof=1)
+Xtil_B = (X_B - mu_B) / se_B
+# Put A on the same scale as B so the coefficients have the same intepretation, but de-mean so we don't need to worry about intercept
+Xtil_A = (X_A - mu_A) / se_B
 
 # De-mean y so we don't need to fit intercept
 ytil_A = y_A - y_A.mean()
@@ -116,7 +117,7 @@ dist_norm = norm(loc=null_beta, scale=np.sqrt(tau21))
 pval_norm = dist_norm.cdf(bhat_A)
 pval_norm = np.where(is_sign_neg, pval_norm, 1-pval_norm)
 res_norm = pd.DataFrame({'mdl':'Splitting','cn':cn_lasso, 'bhat':bhat_A, 'pval':pval_norm})
-res_norm = pd.concat(objs=[res_norm, pd.DataFrame(np.vstack(norm(bhat_B, np.sqrt(tau21)).interval(1-alpha)).T,columns=['lb','ub'])],axis=1)
+res_norm = pd.concat(objs=[res_norm, pd.DataFrame(np.vstack(norm(bhat_A, np.sqrt(tau21)).interval(1-alpha)).T,columns=['lb','ub'])],axis=1)
 
 
 # (iii) Data carving on both
@@ -131,14 +132,17 @@ res_sntn = pd.concat(objs=[res_sntn, pd.DataFrame(np.squeeze(dist_sntn.conf_int(
 res_lasso = pd.concat(objs=[res_tnorm, res_norm, res_sntn], axis=0).reset_index(drop=True)
 res_lasso = res_lasso.assign(is_sig=lambda x: np.where(x['pval'] < alpha, True, False))
 
-
 # Repeat with the lasso wrapper
 wrapper_lasso = lasso(lamb_fix, y, X, frac_split=pct_split, seed=seed)
 wrapper_lasso.run_inference(alpha, null_beta ,sigma2_A)
-wrapper_lasso.res_carve
-wrapper_lasso.res_split
-wrapper_lasso.res_screen
-breakpoint()
+
+
+# Compare to the R...
+ytil = y - y.mean()
+xtil = (X - X.mean(0)) / X.std(0, ddof=0)
+inf2R = lasso(0.1, y, X, frac_split=0)
+inf2R.run_inference(alpha, null_beta, 1.0, run_split=False, run_carve=False)
+print(inf2R.res_screen.round(3))
 
 
 

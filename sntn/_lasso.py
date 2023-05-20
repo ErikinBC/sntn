@@ -12,6 +12,7 @@ from sklearn.model_selection import KFold
 # Internal
 from sntn.dists import tnorm, nts
 from sntn._split import _split_yx
+from sntn._cdf_bvn._utils import Phi
 from sntn.utilities.linear import ols
 from sntn.utilities.utils import get_valid_kwargs_cls, cvec, rvec
 
@@ -265,13 +266,7 @@ class _posi_lasso(_split_yx):
             sigma2_ols = sigma2
         assert isinstance(sigma2, float), 'sigma2 must be a float'
 
-        # -- (ii) Calculate normal/student-t for screened distribution -- #
-        if (self.frac_split > 0) and run_split:
-            self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
-            self.res_split = self.ols_split.res_inf
-            self.res_split.insert(0, 'cidx', self.cidx_screen)
-
-        # -- (iii) Calculate truncated normal for screened distribution -- #
+        # -- (ii) Calculate truncated normal for screened distribution -- #
         if run_screen:
             # Get the Truncated normal parameters
             eta2var, v_neg, v_pos = self._inference_on_screened(sigma2)
@@ -279,17 +274,24 @@ class _posi_lasso(_split_yx):
             # Assumes all values are positive
             bhat_M = self.ols_screen.linreg.coef_
             pval = dist_null.cdf(bhat_M)
-            sign_M = np.sign(bhat_M)
+            sign_M = np.sign(self.bhat_M)
             sign_neg = sign_M == -1
             pval = np.where(sign_neg, pval, 1-pval)
             self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_M, 'pval':pval})
             if run_ci:
                 # Flip signs/axes where appropriate
                 ci_lbub = dist_null.conf_int(bhat_M, alpha)
-                ci_lbub[sign_M==-1] *= -1
-                ci_lbub = np.sort(ci_lbub, axis=1)
                 self.res_screen['lb'] = ci_lbub[:,0]
                 self.res_screen['ub'] = ci_lbub[:,1]
+
+        # -- (iii) Calculate normal/student-t for screened distribution -- #
+        if (self.frac_split > 0) and run_split:
+            self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
+            self.res_split = self.ols_split.res_inf.copy()
+            # Update the p-values to match the signs
+            z = self.res_split['bhat'] / self.res_split['se']
+            self.res_split['pval'] = np.where(sign_neg, Phi(z), Phi(-z))
+            self.res_split.insert(0, 'cidx', self.cidx_screen)
 
         # -- (iv) Calculate NTS screen+split data (i.e. carving) -- #
         if run_carve:
@@ -299,8 +301,11 @@ class _posi_lasso(_split_yx):
             mu2 = self.res_screen['bhat'].copy()
             tau22 = eta2var.copy()
             a, b = v_neg.copy(), v_pos.copy()
-            c1 = self.frac_split
-            c2 = 1 - self.frac_split
+            n_A = len(self.x_split)
+            n_B = len(self.x_screen)
+            n = n_A + n_B
+            c1 = n_A / n
+            c2 = 1 - c1
             # Populate distribution under the null hypothesis
             bhat_carve = c1*mu1 + c2*mu2
             if 'cdf_approach' not in kwargs:
