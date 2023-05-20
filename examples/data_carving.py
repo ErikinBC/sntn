@@ -136,6 +136,7 @@ res_lasso = res_lasso.assign(is_sig=lambda x: np.where(x['pval'] < alpha, True, 
 # Repeat with the lasso wrapper
 wrapper_lasso = lasso(lamb_fix, y, X, frac_split=pct_split, seed=seed)
 wrapper_lasso.run_inference(alpha, null_beta ,sigma2_A)
+res_sntn.drop(columns=['mdl']).pval - wrapper_lasso.res_carve.pval
 
 # Compare to the R...
 ytil = y - y.mean()
@@ -174,7 +175,7 @@ bhat_A = np.dot(eta_A_M.T, ytil_A)
 
 # (iv) Use held-out portion to estimate variance of the error
 resid_A = ytil_A - np.dot(X_A_M, bhat_A)
-sigma2_A = np.sum(resid_A**2) / (n_A - k)
+sigma2_A = np.sum(resid_A**2) / (n_A - (k+1))
 tau21 = sigma2_A * np.sum(eta_A_M**2,0)
 
 # (v) Calculate the polyhedral constraints
@@ -238,6 +239,7 @@ res_margin = res_margin.assign(is_sig=lambda x: np.where(x['pval'] < alpha, True
 # Repeat with the lasso wrapper
 wrapper_margin = marginal_screen(k, y, X, frac_split=pct_split, seed=seed)
 wrapper_margin.run_inference(alpha, null_beta ,sigma2_A)
+print(np.max(np.abs(res_sntn.sort_values('bhat')['pval'].values - res_margin.loc[res_margin['mdl'] == 'Carving'].sort_values('bhat')['pval'].values)))
 assert np.abs(wrapper_margin.res_carve['bhat'].sort_values() - res_sntn['bhat'].sort_values().values).max() < kkt_tol
 assert np.abs(wrapper_margin.res_screen['bhat'].sort_values() - res_tnorm['bhat'].sort_values().values).max() < kkt_tol
 assert np.abs(wrapper_margin.res_split['bhat'].sort_values() - res_norm['bhat'].sort_values().values).max() < kkt_tol

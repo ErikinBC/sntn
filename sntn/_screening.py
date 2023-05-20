@@ -11,9 +11,9 @@ from sklearn.model_selection import KFold
 # Internal
 from sntn.dists import tnorm, nts
 from sntn._split import _split_yx
+from sntn._cdf_bvn._utils import Phi
 from sntn.utilities.linear import ols
 from sntn.utilities.utils import get_valid_kwargs_cls, cvec, rvec
-
 
 
 class _posi_marginal_screen(_split_yx):
@@ -182,26 +182,30 @@ class _posi_marginal_screen(_split_yx):
             sigma2_ols = sigma2
         assert isinstance(sigma2, float), 'sigma2 must be a float'
 
-
-        # -- (ii) Calculate normal/student-t for screened distribution -- #
-        if (self.frac_split > 0) and run_split:
-            self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
-            self.res_split = self.ols_split.res_inf
-            self.res_split.insert(0, 'cidx', self.cidx_screen)
-                
-        # -- (iii) Calculate truncated normal for screened distribution -- #
+        # -- (ii) Calculate truncated normal for screened distribution -- #
         if run_screen:
             alph_den, v_neg, v_pos = self._inference_on_screened(sigma2)
             self.dist_screen = tnorm(null_beta, alph_den, v_neg, v_pos)
             # Add on the p-values and conf-int's
             bhat_S = self.ols_screen.linreg.coef_
             pval = self.dist_screen.cdf(bhat_S)
-            pval = 2*np.minimum(pval, 1-pval)
+            sign_neg = self.s[self.cidx_screen] == -1
+            pval = np.where(sign_neg, pval, 1-pval)
             self.res_screen = pd.DataFrame({'cidx':self.cidx_screen,'bhat':bhat_S, 'pval':pval})
             if run_ci:
                 ci_lbub = self.dist_screen.conf_int(bhat_S, alpha, a=v_neg, b=v_pos, sigma2=alph_den)
                 self.res_screen['lb'] = ci_lbub[:,0]
                 self.res_screen['ub'] = ci_lbub[:,1]
+
+        # -- (iii) Calculate normal/student-t for screened distribution -- #
+        if (self.frac_split > 0) and run_split:
+            self.ols_split.run_inference(alpha=alpha, null_beta=null_beta, sigma2=sigma2_ols)
+            self.res_split = self.ols_split.res_inf.copy()
+            # Update the p-values to match the signs
+            z = self.res_split['bhat'] / self.res_split['se']
+            self.res_split['pval'] = np.where(sign_neg, Phi(z), Phi(-z))
+            self.res_split.insert(0, 'cidx', self.cidx_screen)
+                
 
         # -- (iv) Calculate NTS screen+split data (i.e. carving) -- #
         if run_carve:
@@ -211,8 +215,11 @@ class _posi_marginal_screen(_split_yx):
             mu2 = self.res_screen['bhat'].copy()
             tau22 = alph_den.copy()
             a, b = v_neg.copy(), v_pos.copy()
-            c1 = self.frac_split
-            c2 = 1 - self.frac_split
+            n_A = len(self.x_split)
+            n_B = len(self.x_screen)
+            n = n_A + n_B
+            c1 = n_A / n
+            c2 = 1 - c1
             # Populate distribution under the null hypothesis
             bhat_carve = c1*mu1 + c2*mu2
             if 'cdf_approach' not in kwargs:
@@ -222,7 +229,8 @@ class _posi_marginal_screen(_split_yx):
             self.dist_carve = nts(null_beta, tau21, None, tau22, a, b, c1, c2, cdf_approach=cdf_approach, fix_mu=True)
             # Calculate terms for dataframe
             pval = self.dist_carve.cdf(bhat_carve)
-            pval = 2*np.minimum(pval, 1-pval)
+            # Condition on the direction to test (otherwise screening will show more power unfairly)
+            pval = np.where(sign_neg, pval, 1-pval)
             self.res_carve = pd.DataFrame({'cidx':self.cidx_screen, 'bhat':bhat_carve, 'pval':pval})
             if run_ci:
                 ci_lbub = self.dist_carve.conf_int(bhat_carve, alpha=alpha, param_fixed='mu', cdf_approach=cdf_approach)
