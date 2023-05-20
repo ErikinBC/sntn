@@ -1,25 +1,40 @@
 """
 Checks that package has configured properly, `python3 -m sntn`, will run this script. Runs the scripts contained in the readme.md.
+
+For package updates:
+# Clean up old wheels
+1) rm dist/* 
+2) python setup.py bdist_wheel --universal
+# On some test conda env
+1) twine upload --repository-url https://test.pypi.org/legacy/ dist/sntn*
+2) pip uninstall paranet
+3) pip install --index-url https://test.pypi.org/simple/ sntn --user
+# Upload to PYPI
+1) https://pypi.org/project/sntn/
+2) twine upload dist/sntn*
+3) pip uninstall sntn
+4) pip install sntn
+
 """
 
 # Load dependencies
 import numpy as np
 import pandas as pd
+from glmnet import ElasticNet
 from scipy.stats import norm
-# from sntn.dists import SNTN, tnorm
+from sntn.dists import nts
 
 def fun_main() -> None:
-    # Ground truth
-    nsim = 1000
-    mu1_seq = np.linspace(50, 60, 11)
-    mu2 = 70
-    sig1 = 3
-    sig2 = 5
-    # dist1 = tnorm()
-    dist2 = norm(loc=mu2, scale=sig2)
+    # Check that classic 1964 technometrics query works
+    mu1, tau21 = 100, 6**2
+    mu2, tau22 = 50, 3**2
+    a, b = 44, np.inf
+    w = 138
+    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
+    expected_1964 = 0.03276
+    cdf_1964 = dist_1964.cdf(w)[0]
+    assert np.round(cdf_1964,5) == expected_1964, F'Expected CDF to be: {expected_1964} not {cdf_1964}, nts package did not compile properly!!' 
 
-    for mu1 in mu1_seq:
-        mu1
 
 if __name__ == '__main__':
     fun_main()

@@ -46,8 +46,8 @@ class _bvn():
 
         Methods
         -------
-        TO-DO
-
+        cdf:                    Calculates P(X1 <= x1, X2 <= x2)
+        rvs:                    Generates psuedo-random samples via cholesky decomposition
         """
         # Process inputs
         if isinstance(cdf_approach, np.ndarray):

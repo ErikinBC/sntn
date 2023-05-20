@@ -149,8 +149,8 @@ gg_type2 = (pn.ggplot(dat_type2, pn.aes(x='snr10', y='err', color='mdl',linetype
             pn.labs(x='log10(SNR)', y='Type-2 Error') + 
             pn.scale_color_manual(name='Inference', values=colz2,labels=lambda x: [di_mdl.get(z) for z in x]) + 
             pn.scale_linetype_discrete(name='Fraction',labels=lambda x: [di_frac.get(z) for z in x] ) + 
-            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]) + 
-            pn.theme(legend_position=(0.5,-0.10)))
+            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]))
+            # pn.theme(legend_position=(0.5,-0.10)))
             # pn.facet_wrap('~frac_split',labeller=pn_labeller(frac_split=lambda x: di_frac.get(x,x))))
 gg_type2.save(os.path.join(dir_figures, 'marginal_screening_type2.png'), width=5, height=4)
 

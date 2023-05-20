@@ -20,7 +20,7 @@ from sntn.utilities.utils import get_CI, pn_labeller
 # Set up simulation parameters
 # Dimension of data
 n, p = 100, 150
-s, k = 5, 10
+s = 5
 b0 = +1  # Intercept
 alpha = 0.1
 lam_max_frac = 0.725
@@ -171,8 +171,8 @@ gg_type2 = (pn.ggplot(dat_type2, pn.aes(x='snr10', y='err', color='mdl',linetype
             pn.labs(x='log10(SNR)', y='Type-2 Error') + 
             pn.scale_color_manual(name='Inference', values=colz2,labels=lambda x: [di_mdl.get(z) for z in x]) + 
             pn.scale_linetype_discrete(name='Fraction',labels=lambda x: [di_frac.get(z) for z in x] ) + 
-            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]) + 
-            pn.theme(legend_position=(0.5,-0.10)))
+            pn.scale_y_continuous(labels=percent_format(),limits=[0,1]))
+            # pn.theme(legend_position=(0.5,-0.10)))
 gg_type2.save(os.path.join(dir_figures, 'lasso_type2.png'), width=5, height=4)
 
 

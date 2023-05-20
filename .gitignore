@@ -4,3 +4,5 @@ papers/
 *.DS_Store*
 xy_screen.csv
 *.csv
+*.Rhistory
+*.ipynb_checkpoints*
