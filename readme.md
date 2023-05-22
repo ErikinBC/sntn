@@ -24,7 +24,7 @@ $$
 
 # Installation
 
-See [pypi](https://github.com/ErikinBC/sntn). 
+See [pypi](https://pypi.org/project/sntn/). 
 
 **Please make sure you have atleast python>=3.11!**
 

@@ -9,11 +9,10 @@ For package updates:
 1) twine upload --repository-url https://test.pypi.org/legacy/ dist/sntn*
 2) pip uninstall sntn
 3) pip install -i https://test.pypi.org/simple/ sntn==0.0.4
-# Upload to PYPI
-1) https://pypi.org/project/sntn/
-2) twine upload dist/sntn*
-3) pip uninstall sntn
-4) pip install sntn
+# Upload to PYPI https://pypi.org/project/sntn/
+1) twine upload dist/sntn*
+2) pip uninstall sntn
+3) pip install sntn
 
 """
 
