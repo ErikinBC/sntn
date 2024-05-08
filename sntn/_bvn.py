@@ -17,7 +17,7 @@ valid_cdf_approach = ['scipy'] + valid_cox_approach + valid_quad_approach
 
 
 class _bvn():
-    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='owen', **kwargs) -> None:
+    def __init__(self, mu1:float | np.ndarray, sigma21:float | np.ndarray, mu2:float | np.ndarray, sigma22:float | np.ndarray, rho:float | np.ndarray, cdf_approach:str='owen', **kwargs) -> None:
         """
         Main workhorse class for a bivariate normal distribution:
 
@@ -96,7 +96,7 @@ class _bvn():
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
 
 
-    def cdf(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None, **kwargs) -> np.ndarray:
+    def cdf(self, x:np.ndarray | None=None, x1:np.ndarray | None=None, x2:np.ndarray | None=None, **kwargs) -> np.ndarray:
         """
         Calculates the CDF for an array with two dimensions (i.e. bivariate normal)
 

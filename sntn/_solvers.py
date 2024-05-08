@@ -31,12 +31,11 @@ root_scalar         bisect          True
 import numpy as np
 from time import time
 from warnings import warn
-from copy import deepcopy
 from inspect import getfullargspec
-from scipy.stats import norm
+from typing import Callable, Optional
 from scipy.optimize import root, minimize_scalar, minimize, root_scalar
 # Internal modules
-from sntn.utilities.utils import broastcast_max_shape, str2list, try2list, no_diff, vprint
+from sntn.utilities.utils import broastcast_max_shape, str2list, no_diff
 
 # Hard-coded scipy approaches and methods
 valid_approaches = ['root', 'minimize_scalar', 'minimize', 'root_scalar']
@@ -89,7 +88,7 @@ def _process_args_kwargs_flatten(args:tuple, kwargs:tuple) -> tuple:
 
 
 class conf_inf_solver():
-    def __init__(self, dist:callable, param_theta:str, dF_dtheta:None or callable=None, alpha:float=0.05, verbose:bool=False, verbose_iter:int=50) -> None:
+    def __init__(self, dist:callable, param_theta:str, dF_dtheta : Optional[Callable] = None, alpha:float=0.05, verbose:bool=False, verbose_iter:int=50) -> None:
         """
         The conf_inf_solver class can generate confidence intervals for a single parameter of a distribution. Specifically for a target parameter "theta":
 
@@ -193,7 +192,7 @@ class conf_inf_solver():
         return res
 
     @staticmethod
-    def _process_fun_x0_x1(x:float or np.ndarray, fun_x0:None or callable=None, fun_x1:None or callable=None) -> tuple or np.ndarray or None:
+    def _process_fun_x0_x1(x:float | np.ndarray, fun_x0 : Optional[Callable] = None, fun_x1:Optional[Callable] = None) -> tuple | np.ndarray | None:
         """
         If we have a vector/float of observation values (x), and the user passes a fun_x{01} which maps x to some starting point(s), then we return those
         """
@@ -274,7 +273,7 @@ class conf_inf_solver():
         return theta
 
 
-    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict or None=None, di_scipy:dict or None=None, mu_lb:float or int=-100000, mu_ub:float or int=100000, fun_x0:None or callable=None, fun_x1:None or callable=None, fun_x01_type:str='nudge', x0:np.ndarray or None=None, x1:np.ndarray or None=None) -> np.ndarray:
+    def _conf_int(self, x:np.ndarray, approach:str='root', di_dist_args:dict | None=None, di_scipy:dict | None=None, mu_lb:float | int=-100000, mu_ub:float | int=100000, fun_x0:Optional[Callable] = None, fun_x1:Optional[Callable] = None, fun_x01_type:str='nudge', x0:np.ndarray | None=None, x1:np.ndarray | None=None) -> np.ndarray:
         """
         Parameters
         ----------

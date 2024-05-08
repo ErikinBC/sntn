@@ -165,7 +165,7 @@ class _posi_lasso(_split_yx):
         return A, b
 
 
-    def _inference_on_screened(self, sigma2:float or int, partial:bool=True) -> tuple:
+    def _inference_on_screened(self, sigma2:float | int, partial:bool=True) -> tuple:
         """
         Runs post selection inference for the screened variables
 
@@ -226,7 +226,7 @@ class _posi_lasso(_split_yx):
         return eta2var, V[:,0], V[:,1]
 
 
-    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, run_ci:bool=True, **kwargs) -> None:
+    def run_inference(self, alpha:float, null_beta:float | np.ndarray=0, sigma2:float | None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, run_ci:bool=True, **kwargs) -> None:
         """
         Carries out classical and PoSI inference (including data carving)
         

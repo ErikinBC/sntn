@@ -21,7 +21,7 @@ params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
 
 
 
-def gen_params(shape:tuple or list, seed:int or None) -> tuple:
+def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     """Convenience wrapper for generating BVN parameters"""
     np.random.seed(seed)
     mu1 = np.random.randn(*shape)

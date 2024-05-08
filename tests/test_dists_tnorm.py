@@ -21,7 +21,7 @@ from sntn._solvers import di_default_methods
 params_tnorm_rvs = [((1,)), ((10, )), ((10, 5)), ((10, 5, 2)),]
 
 
-def gen_params(shape:tuple or list, seed:int or None) -> tuple:
+def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     """Convenience wrapper for generates TN parameters
     
     Returns
@@ -37,7 +37,7 @@ def gen_params(shape:tuple or list, seed:int or None) -> tuple:
 
 
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
-def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
+def test_dmu(shape:tuple | list, eps:float=1e-6, tol:float=1e-7, verbose:bool=False):
     """Check that the numerical derivatives align with analytical ones"""
     mu, sigma2, a, b = gen_params(shape, seed)
     alpha, a_min, a_max = 0.05, None, None
@@ -61,7 +61,7 @@ def test_dmu(shape:tuple or list, eps:float=1e-6, tol:float=1e-7, verbose:bool=F
 
 
 @pytest.mark.parametrize("shape", params_tnorm_rvs)
-def test_tnorm_rvs(shape:tuple or list, nsim:int=100000, tol1:float=1e-2, tol2:float=1e-9) -> None:
+def test_tnorm_rvs(shape:tuple | list, nsim:int=100000, tol1:float=1e-2, tol2:float=1e-9) -> None:
     """Check that rvs() gets the mean/median we expect from theory"""
     # Process inputs
     mu, sigma2, a, b = gen_params(shape, seed)

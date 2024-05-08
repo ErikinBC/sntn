@@ -18,9 +18,6 @@ For package updates:
 
 # Load dependencies
 import numpy as np
-import pandas as pd
-from glmnet import ElasticNet
-from scipy.stats import norm
 from sntn.dists import nts
 
 def fun_main() -> None:

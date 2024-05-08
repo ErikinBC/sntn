@@ -1,12 +1,12 @@
 import pathlib
-from setuptools import setup
+from setuptools import setup, find_packages
 
 dir_here = pathlib.Path(__file__).parent
 README = (dir_here / 'readme.md').read_text()
 
 setup(
     name='sntn',
-    version='0.0.4',    
+    version='0.0.5',    
     description='Sum of a normal and a truncated Normal (SNTN)',
     long_description=README,
     long_description_content_type="text/markdown",
@@ -14,11 +14,21 @@ setup(
     author='Erik Drysdale',
     author_email='erikinwest@gmail.com',
     license='GPLv3',
-    license_files = ('LICENSE.txt'),
-    packages=['sntn'],
-    package_data={'sntn': ['/*','examples/*','tests/*', 'simulations/*']},
+    license_files=('LICENSE.txt',),
+    packages=find_packages(),  # This will find any folders with __init__.py
+    package_data={
+        'sntn': ['*.py', 'examples/*', 'tests/*', 'simulations/*', 'benchmark/*', 'utilities/*']
+    },
+    python_requires='>=3.11.0',
+    install_requires=[
+        'plotnine>=0.12.1',
+        'numpy>=1.25.0',
+        'pandas>=1.5.3',
+        'scikit_learn>=1.2.2',
+        'scipy>=1.10.1',
+        'statsmodels>=0.14.0'
+        ],
     include_package_data=True,
-    # install_requires=['numpy<=1.24.2', 'pandas<=2.0.0', 'glmnet<=2.2.1', 'scipy<=1.9.3'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Science/Research',

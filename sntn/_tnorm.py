@@ -41,7 +41,7 @@ class _truncnorm():
 
 
 class _tnorm():
-    def __init__(self, mu:float or np.ndarray or int, sigma2:float or np.ndarray or int, a:float or np.ndarray or int, b:float or np.ndarray or int, **kwargs) -> None:
+    def __init__(self, mu:float | np.ndarray | int, sigma2:float | np.ndarray | int, a:float | np.ndarray | int, b:float | np.ndarray | int, **kwargs) -> None:
         """
         Main model class for the truncated normal distribution
 
