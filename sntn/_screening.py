@@ -5,8 +5,6 @@ Workhorse class for doing marginal screening
 # External
 import numpy as np
 import pandas as pd
-from math import isclose
-from warnings import warn
 from sklearn.model_selection import KFold
 # Internal
 from sntn.dists import tnorm, nts
@@ -109,7 +107,7 @@ class _posi_marginal_screen(_split_yx):
         return mat_A
         
 
-    def _inference_on_screened(self, sigma2:float or int) -> tuple:
+    def _inference_on_screened(self, sigma2:float | int) -> tuple:
         """
         Runs post selection inference for the screened variables
 
@@ -142,7 +140,7 @@ class _posi_marginal_screen(_split_yx):
         return alph_den, v_neg, v_pos
 
 
-    def run_inference(self, alpha:float, null_beta:float or np.ndarray=0, sigma2:float or None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, run_ci:bool=True, **kwargs) -> None:
+    def run_inference(self, alpha:float, null_beta:float | np.ndarray=0, sigma2:float | None=None, run_screen:bool=True, run_split:bool=True, run_carve:bool=True, run_ci:bool=True, **kwargs) -> None:
         """
         Carries out classical and PoSI inference (including data carving)
         

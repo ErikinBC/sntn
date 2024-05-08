@@ -11,7 +11,7 @@ from sntn.utilities.utils import cvec
 
 
 class _split_yx():
-    def __init__(self, y:np.ndarray, x:np.ndarray, frac_split:float=0.5, seed:int or None=None, normalize:bool=True, has_int:bool=True) -> None:
+    def __init__(self, y:np.ndarray, x:np.ndarray, frac_split:float=0.5, seed:int | None=None, normalize:bool=True, has_int:bool=True) -> None:
         """
         Class which
 
@@ -71,7 +71,7 @@ class _split_yx():
 
 
     @staticmethod
-    def normalize_mat(mat:np.ndarray, mu:None or np.ndarray=None, se:None or np.ndarray=None, return_mu_se:bool = False) -> np.ndarray:
+    def normalize_mat(mat:np.ndarray, mu:None | np.ndarray=None, se:None | np.ndarray=None, return_mu_se:bool = False) -> np.ndarray:
         if mu is None:
             mu = mat.mean(axis=0)
         if se is None:

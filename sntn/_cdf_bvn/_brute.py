@@ -18,7 +18,7 @@ valid_quad_approach = ['owen', 'drezner1', 'drezner2']
 # --- (1) SCIPY --- #
 
 
-class _bvn_scipy(_bvn_base):
+class bvn_scipy(_bvn_base):
     def __init__(self, mu1:np.ndarray, mu2:np.ndarray, sigma21:np.ndarray, sigma22:np.ndarray, rho:np.ndarray):
         super().__init__(mu1, mu2, sigma21, sigma22, rho)
 
@@ -51,8 +51,12 @@ class _bvn_scipy(_bvn_base):
             # Determine which dimensions are "recycles"
             n_dim_recycle = n_h_shape - self.n_param_shape
             for ii in np.ndindex(h_shape[:n_dim_recycle]):
+                # pval[*ii,...] = self.cdf(x1[*ii,...], x2[*ii,...])
                 # Make a recursive call...
-                pval[*ii,...] = self.cdf(x1[*ii,...], x2[*ii,...])
+                idx = ii + (Ellipsis,)  # Create a full index tuple
+                sub_x1 = x1[idx]
+                sub_x2 = x2[idx]
+                pval[idx] = self.cdf(sub_x1, sub_x2)
         # Return orthant if passed
         if return_orthant:
             pval = cdf_to_orthant(pval, h, k)

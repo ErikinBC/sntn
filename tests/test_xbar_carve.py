@@ -5,7 +5,6 @@ python3 -m pytest tests/test_xbar_carve.py -s
 """
 
 # External
-import os
 import pytest
 import numpy as np
 from scipy.stats import norm

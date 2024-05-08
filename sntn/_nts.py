@@ -5,12 +5,12 @@ Fully specified SNTN distribution
 # External
 import numpy as np
 from time import time
+from scipy.optimize import root
 from scipy.stats import truncnorm, norm
-from scipy.optimize import root, root_scalar
 # Internal
 from sntn._bvn import _bvn
+from sntn._solvers import conf_inf_solver
 from sntn.utilities.grad import _log_gauss_approx
-from sntn._solvers import conf_inf_solver, _process_args_kwargs_flatten
 from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k, pass_kwargs_to_classes, get_valid_kwargs_cls, get_valid_kwargs_method
 
 
@@ -40,7 +40,7 @@ def _mus_are_equal(mu1, mu2) -> tuple:
 
 
 class _nts():
-    def __init__(self, mu1:float or np.ndarray or None, tau21:float or np.ndarray, mu2:float or np.ndarray or None, tau22:float or np.ndarray, a:float or np.ndarray, b:float or np.ndarray, c1:float or np.ndarray=1, c2:float or np.ndarray=1, fix_mu:bool=False, **kwargs) -> None:
+    def __init__(self, mu1:float | np.ndarray | None, tau21:float | np.ndarray, mu2:float | np.ndarray | None, tau22:float | np.ndarray, a:float | np.ndarray, b:float | np.ndarray, c1:float | np.ndarray=1, c2:float | np.ndarray=1, fix_mu:bool=False, **kwargs) -> None:
         """
         The "normal and truncated sum": workhorse class for the sum of a normal and truncated normal. Carries out standard inferece using scipy.dist syntax with added conf_int method
 
@@ -283,7 +283,7 @@ class _nts():
         return w
 
 
-    def _find_dist_kwargs_CI(**kwargs) -> tuple:
+    def _find_dist_kwargs_CI(self, **kwargs) -> tuple:
         """
         Looks for valid truncated normal distribution keywords that are needed for generating a CI
 

@@ -6,18 +6,17 @@ Main bivariate normal class
 import numpy as np
 from scipy.linalg import cholesky
 # Internal
-from sntn._cdf_bvn._utils import cdf_to_orthant
 from sntn.utilities.utils import process_x_x1_x2
-from sntn._cdf_bvn._approx import _bvn_cox, valid_cox_approach
-from sntn._cdf_bvn._brute import _bvn_scipy, valid_quad_approach, _bvn_quad
-from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k
+from sntn._cdf_bvn._approx import bvn_cox, valid_cox_approach
+from sntn._cdf_bvn._brute import bvn_scipy, valid_quad_approach, _bvn_quad
+from sntn.utilities.utils import broastcast_max_shape, reverse_broadcast_from_k
 
 # Accepted CDF methods
 valid_cdf_approach = ['scipy'] + valid_cox_approach + valid_quad_approach
 
 
 class _bvn():
-    def __init__(self, mu1:float or np.ndarray, sigma21:float or np.ndarray, mu2:float or np.ndarray, sigma22:float or np.ndarray, rho:float or np.ndarray, cdf_approach:str='owen', **kwargs) -> None:
+    def __init__(self, mu1:float | np.ndarray, sigma21:float | np.ndarray, mu2:float | np.ndarray, sigma22:float | np.ndarray, rho:float | np.ndarray, cdf_approach:str='owen', **kwargs) -> None:
         """
         Main workhorse class for a bivariate normal distribution:
 
@@ -64,11 +63,11 @@ class _bvn():
         # Prepare cdf method (important to assign before we flatten as well)
         self.cdf_approach = cdf_approach
         if self.cdf_approach == 'cox1':
-            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
+            self.cdf_method = bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=True, **kwargs)
         if self.cdf_approach == 'cox2':
-            self.cdf_method = _bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
+            self.cdf_method = bvn_cox(mu1, mu2, sigma21, sigma22, rho, monte_carlo=False, **kwargs)
         if self.cdf_approach == 'scipy':
-            self.cdf_method = _bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
+            self.cdf_method = bvn_scipy(mu1, mu2, sigma21, sigma22, rho)
         if self.cdf_approach == 'owen':
             self.cdf_method = _bvn_quad(mu1, mu2, sigma21, sigma22, rho, 'owen')
         if self.cdf_approach == 'drezner1':
@@ -96,7 +95,7 @@ class _bvn():
             self.A[i] = cholesky(self.Sigma[i].reshape(2,2)).flatten()
 
 
-    def cdf(self, x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None, **kwargs) -> np.ndarray:
+    def cdf(self, x:np.ndarray | None=None, x1:np.ndarray | None=None, x2:np.ndarray | None=None, **kwargs) -> np.ndarray:
         """
         Calculates the CDF for an array with two dimensions (i.e. bivariate normal)
 

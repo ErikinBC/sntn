@@ -14,14 +14,14 @@ from scipy.stats import norm, binom
 from sntn.dists import bvn
 from parameters import seed
 from sntn._bvn import valid_cdf_approach
-from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_dataframe
+from sntn.utilities.utils import rho_debiased, array_to_dataframe
 
 # Used for pytest
 params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
 
 
 
-def gen_params(shape:tuple or list, seed:int or None) -> tuple:
+def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     """Convenience wrapper for generating BVN parameters"""
     np.random.seed(seed)
     mu1 = np.random.randn(*shape)

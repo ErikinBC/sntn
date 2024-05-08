@@ -3,12 +3,12 @@ Checks that package has configured properly, `python3 -m sntn`, will run this sc
 
 For package updates:
 # Clean up old wheels
-1) rm dist/* 
+1) rm -r dist/
 2) python setup.py bdist_wheel --universal
 # On some test conda env
 1) twine upload --repository-url https://test.pypi.org/legacy/ dist/sntn*
 2) pip uninstall sntn
-3) pip install -i https://test.pypi.org/simple/ sntn==0.0.4
+3) pip install -i https://test.pypi.org/simple/ sntn==X.X.X
 # Upload to PYPI https://pypi.org/project/sntn/
 1) twine upload dist/sntn*
 2) pip uninstall sntn
@@ -18,9 +18,6 @@ For package updates:
 
 # Load dependencies
 import numpy as np
-import pandas as pd
-from glmnet import ElasticNet
-from scipy.stats import norm
 from sntn.dists import nts
 
 def fun_main() -> None:
