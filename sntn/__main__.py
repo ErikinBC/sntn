@@ -3,7 +3,7 @@ Checks that package has configured properly, `python3 -m sntn`, will run this sc
 
 For package updates:
 # Clean up old wheels
-1) rm dist/* 
+1) rm -r dist/
 2) python setup.py bdist_wheel --universal
 # On some test conda env
 1) twine upload --repository-url https://test.pypi.org/legacy/ dist/sntn*

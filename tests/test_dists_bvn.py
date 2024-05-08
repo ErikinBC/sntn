@@ -14,7 +14,7 @@ from scipy.stats import norm, binom
 from sntn.dists import bvn
 from parameters import seed
 from sntn._bvn import valid_cdf_approach
-from sntn.utilities.utils import flip_last_axis, rho_debiased, array_to_dataframe
+from sntn.utilities.utils import rho_debiased, array_to_dataframe
 
 # Used for pytest
 params_shape = [((1,)), ((12, )), ((4, 3)), ((3, 2, 2)),]
