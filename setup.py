@@ -6,7 +6,7 @@ README = (dir_here / 'readme.md').read_text()
 
 setup(
     name='sntn',
-    version='0.0.6',    
+    version='0.0.7',    
     description='Sum of a normal and a truncated Normal (SNTN)',
     long_description=README,
     long_description_content_type="text/markdown",
@@ -19,7 +19,7 @@ setup(
     package_data={
         'sntn': ['*.py', 'examples/*', 'tests/*', 'simulations/*', 'benchmark/*', 'utilities/*']
     },
-    python_requires='>=3.10.0',
+    python_requires='>=3.10.0, <=3.11.9',
     install_requires=[
         'plotnine>=0.12.1',
         'numpy>=1.25.0',

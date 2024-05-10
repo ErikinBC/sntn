@@ -9,3 +9,4 @@ xy_screen.csv
 sntn.egg-info
 build/
 dist/
+.vscode

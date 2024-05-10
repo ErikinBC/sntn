@@ -44,7 +44,7 @@ class _nts():
         """
         The "normal and truncated sum": workhorse class for the sum of a normal and truncated normal. Carries out standard inferece using scipy.dist syntax with added conf_int method
 
-        W = c1*Z1 + c2*Z2,  Z1 ~ N(mu1, tau21^2), Z2 ~ TN(mu2, tau22^2, a, b)
+        W = c1*Z1 + c2*Z2,  Z1 ~ N(mu1, tau21), Z2 ~ TN(mu2, tau22, a, b)
         W ~ NTS(theta(mu(c)), Sigma(tau(c)), a, b)
         mu(c) =             [c1*mu1, c2*mu2]
         tau(c) =            [c1**2 * tau21, c2**2 * tau22]
