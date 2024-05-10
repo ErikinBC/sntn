@@ -3,6 +3,7 @@ Make sure SNTN works as expected
 
 python3 -m tests.test_dists_nts
 python3 -m pytest tests/test_dists_nts.py -s
+python3 -m pytest tests/test_dists_nts.py -k 'test_nts_cdf'
 """
 
 # Internal
@@ -171,8 +172,10 @@ def test_nts_cdf(shape:tuple, ndraw:int=20000, tol_cdf:float=0.01) -> None:
     w = 138
     dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
     expected_1964 = 0.03276
-    cdf_1964 = dist_1964.cdf(w)[0]
+    cdf_1964 = dist_1964.cdf(w, method='bvn')[0]
+    cdf_1964_v2 = dist_1964.cdf(w, method='quad')[0]
     assert np.round(cdf_1964,5) == expected_1964, F'Expected CDF to be: {expected_1964} not {cdf_1964}' 
+    breakpoint()
     
     # (ii) Check that random parameters align with rvs
     mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)

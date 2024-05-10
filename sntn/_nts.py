@@ -139,21 +139,30 @@ class _nts():
         return mu
 
 
-    def cdf(self, w:np.ndarray, **kwargs) -> np.ndarray:
+    def cdf(self, w:np.ndarray, method='bvn', **kwargs) -> np.ndarray:
         """Returns the cumulative distribution function"""
         # Consider updates bvn with kwargs match
-        kwargs_bvn = get_valid_kwargs_cls(_bvn, **kwargs)
-        if len(kwargs_bvn) > 0:
-            self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs_bvn)
+        cdf_methods = ['bvn', 'quad']
+        assert method in cdf_methods, f'method must be one of {cdf_methods}'
         # Broadcast x to the same dimension of the parameters
         w = broadcast_to_k(np.atleast_1d(w), self.param_shape)
         m1 = (w - self.theta1) / self.sigma1
-        # Calculate the CDF (note that 1-(orth1-orth2)/Z = (CDF2 - CDF1)/Z)
-        cdf1 = self.bvn.cdf(x1=m1, x2=self.alpha)
-        cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
-        # Get CDF
-        pval = (cdf2 - cdf1) / self.Z
-        # If cdf2 and cdf1 1 are effectively, then tail is so extreme solution is one
+        if method == 'bvn':
+            kwargs_bvn = get_valid_kwargs_cls(_bvn, **kwargs)
+            if len(kwargs_bvn) > 0:
+                self.bvn = pass_kwargs_to_classes(_bvn, 0, 1, 0, 1, self.rho, **kwargs_bvn)
+            # Calculate the CDF (note that 1-(orth1-orth2)/Z = (CDF2 - CDF1)/Z)
+            cdf1 = self.bvn.cdf(x1=m1, x2=self.alpha)
+            cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
+            breakpoint()
+            pval = (cdf2 - cdf1) / self.Z
+        if method == 'quad':
+            from sntn._quad import bvn_cdf_diff
+            breakpoint()
+            pval = bvn_cdf_diff(x1=m1, x2a=self.beta, x2b=self.alpha, rho=self.rho, **kwargs) / self.Z
+
+        # Do some cleanup for the tails
+        # If cdf2 and cdf1 are ~100%, then tail is so extreme solution is one
         pval[(cdf2 - cdf1 == 0) & (cdf2.round() == 1)] = 1
         # If Z is zero, then it's going to be zero
         pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
@@ -188,12 +197,6 @@ class _nts():
         return w
 
 
-    # @staticmethod
-    # def _dmu_dcdf(mu:np.ndarray, x:np.ndarray, alpha:float, *args, **kwargs) -> np.ndarray:
-    #     """Return the derivative of...."""
-    #     return None
-
-
     def _err_cdf_p(self, w:np.ndarray, p:np.ndarray) -> np.ndarray:
         """
         Utility function that can be passed into a root solver so that a (n,k) array of points can be evaluated to an (n,k) array of percentiles
@@ -217,7 +220,7 @@ class _nts():
         return err
 
 
-    def ppf(self, p:np.ndarray, method:str='loop', tol:float=1e-3, verbose:bool=False, verbose_iter:int=50, ndraw:int=10000, **kwargs) -> np.ndarray:
+    def ppf(self, p:np.ndarray, method:str='loop', tol:float=1e-3, root_chunks: int=100, verbose:bool=False, verbose_iter:int=50, **kwargs) -> np.ndarray:
         """
         Returns the quantile of the NTS distribution(s)
         
@@ -226,17 +229,17 @@ class _nts():
         p:                  An array of whose last dimensions can be flattened
         method:             See below (default='loop')
         tol:                Maximum tolerance we will allow for solution to have failed
+        root_chunks:        When method is 'root'... 
         verbose:            For the root_loop method, whether updates should be printed
         verbose_iter:       If verbose, after how many iterations should a status be printed?
-        ndraw:              If the i,j'th root finding fails, how many samples to take from rvs to calculate empirical quantile
-
+        
         Methods
         -------
         root:               Solve all roots simultaneously (fast but unstable)
         loop:               Loop over all i,j configurations (slower but more stable)
         approx:             Use the quantiles from each dist
         """
-        valid_ppf_methods = ['root', 'approx', 'loop']  #, 'root_loop'
+        valid_ppf_methods = ['root', 'approx', 'loop']
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
         p = np.atleast_1d(p)
@@ -246,6 +249,11 @@ class _nts():
         if method == 'approx':
             # Use the simple quantiles
             w = w0.copy()
+        if method == 'root':
+            solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
+            merr = np.abs(solution.fun).max()
+            assert merr < tol, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol}'
+            w = solution.x.reshape(w0.shape) # Reshape
         if method == 'loop':
             # Prepare for loop
             w0, p = np.atleast_2d(w0), np.atleast_2d(p)
@@ -273,12 +281,7 @@ class _nts():
                             rate = ncomp / dtime
                             seta = nleft / rate
                             print(f'Iteration {ncomp} of {ntot} (ETA={seta/60:.1f} minutes)')
-        if method == 'root':
-            solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
-            merr = np.abs(solution.fun).max()
-            assert merr < tol, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol}'
-            w = solution.x.reshape(w0.shape) # Reshape
-            # Put to original param shape
+        # Put to original param shape
         w = reverse_broadcast_from_k(w, self.param_shape)
         return w
 
