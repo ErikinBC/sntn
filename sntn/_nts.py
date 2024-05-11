@@ -154,11 +154,9 @@ class _nts():
             # Calculate the CDF (note that 1-(orth1-orth2)/Z = (CDF2 - CDF1)/Z)
             cdf1 = self.bvn.cdf(x1=m1, x2=self.alpha)
             cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
-            breakpoint()
             pval = (cdf2 - cdf1) / self.Z
         if method == 'quad':
             from sntn._quad import bvn_cdf_diff
-            breakpoint()
             pval = bvn_cdf_diff(x1=m1, x2a=self.beta, x2b=self.alpha, rho=self.rho, **kwargs) / self.Z
 
         # Do some cleanup for the tails

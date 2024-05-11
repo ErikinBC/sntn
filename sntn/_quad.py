@@ -26,16 +26,28 @@ def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_
 
     So the difference in the integrals is simply:
     int_{x2b}^{x2a} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
+
+    Parameters:
+        - x1: np.ndarray or float, fixed x1 coordinate.
+        - x2a, x2b: np.ndarray or float, the range [x2b, x2a] to integrate over.
+        - rho: np.ndarray or float, correlation coefficient.
+        - n_points: int, number of points for numerical integration.
+
+    Returns:
+        - float or np.ndarray: the difference in the CDF values.
     """
-    # Broadcast...
-    breakpoint()
-    # ...
-    d_points = (x2a - x2b) / (n_points - 1)
-    points = np.linspace(x2b, x2a, num=n_points)
-    y = _integrand_X12(x1=x1, x2=points, rho=rho)
-    y = np.squeeze(y)
-    int_f = np.trapz(y, dx=d_points)
-    return int_f
+    x2a, x2b, x1, rho = np.broadcast_arrays(x2a, x2b, x1, rho)
+    # Generate points and calculate dx
+    points = np.linspace(x2b, x2a, num=n_points)  # points shape is now (n_points, *x2a.shape)
+    dx = (x2a - x2b) / (n_points - 1)
+    # Calculate integrand across the new axis
+    integrand = _integrand_X12(x1, points, rho)
+    # Integrate over the first axis, which is the points axis
+    integral = np.trapz(integrand, dx=dx, axis=0)
+    return integral  # integral = np.trapz(integrand, x=points, axis=-1)
+    
+
+
 
 def _integral110(z, a, b):
         fb = np.sqrt(1 + b**2)
