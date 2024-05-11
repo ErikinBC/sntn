@@ -11,7 +11,7 @@ from typing import Type, Callable, Tuple
 from inspect import getfullargspec, signature
 
 # Return lb/ub confidence intervals on a binomial proportion
-def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None or str=None, cn_num:None or str=None, alpha:float=0.05, method='beta') -> pd.DataFrame:
+def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None | str=None, cn_num:None | str=None, alpha:float=0.05, method='beta') -> pd.DataFrame:
     """
     Add on the binomial proportion CI to an existing DataFrame. User must specify either the percent of successes (cn_pct) or number of successes (cn_num)
 
@@ -41,7 +41,7 @@ def get_CI(df:pd.DataFrame, cn_den:str, cn_pct:None or str=None, cn_num:None or 
     return res
 
 
-def try_except_breakpoint(cond:bool, stmt:str or None=None):
+def try_except_breakpoint(cond:bool, stmt:str | None=None):
     if stmt is None:
         stmt = ''
     try:
@@ -74,7 +74,7 @@ def pass_kwargs_to_classes(cls, *args, **kwargs):
 
 
 
-def process_x_x1_x2(x:np.ndarray or None=None, x1:np.ndarray or None=None, x2:np.ndarray or None=None) -> tuple:
+def process_x_x1_x2(x:np.ndarray | None=None, x1:np.ndarray | None=None, x2:np.ndarray | None=None) -> tuple:
     """
     For the bivariate normal, extract the two coordinates
 
@@ -124,7 +124,7 @@ def no_diff(x, y):
     assert set(x) == set(y) and len(x) == len(y), 'x and y do not have the same elements'
 
 
-def try2list(x) -> list or tuple:
+def try2list(x) -> list | tuple:
     """If x is not a list or a tuple, return as a list"""
     if not (isinstance(x, list) or isinstance(x, tuple)):
         return [x]
@@ -132,7 +132,7 @@ def try2list(x) -> list or tuple:
         return x
 
 
-def str2list(x:str or list) -> list:
+def str2list(x:str | list) -> list:
     """
     If x is a string, convert to a list
     """
@@ -142,7 +142,7 @@ def str2list(x:str or list) -> list:
         return x
 
 
-def cat_by_order(df:pd.DataFrame, cn_order:str or list, cn_cat:str, ascending:bool or list=True, drop_index:bool=True) -> pd.DataFrame:
+def cat_by_order(df:pd.DataFrame, cn_order:str | list, cn_cat:str, ascending:bool | list=True, drop_index:bool=True) -> pd.DataFrame:
     """
     Sort a dataframe and have one of the column become a category based on that order
 
@@ -180,7 +180,7 @@ def mean_total_error(x:np.ndarray) -> float:
     return np.sum(np.abs(x))
 
 
-def grad_clip_abs(x:np.ndarray, a_min:float or None=None, a_max:float or None=None) -> np.ndarray:
+def grad_clip_abs(x:np.ndarray, a_min:float | None=None, a_max:float | None=None) -> np.ndarray:
     """Return the absolute value of a gradient value either rounded up or down (a_min/a_max should be positive)"""
     if isinstance(a_min, np.ndarray) and isinstance(a_max, np.ndarray):
         if None in a_min and None in a_max:
@@ -315,7 +315,7 @@ def vprint(stmt, verbose=True):
         print(stmt)
 
 
-def check_all_is_type(*args, dtype:Type or list):
+def check_all_is_type(*args, dtype:Type | list):
     """Checks that all *args match one type"""
     dtypes = try2list(dtype)
     assert all([isinstance(d, Type) for d in dtypes]), 'dtype(s) need be a type'
@@ -552,7 +552,7 @@ def broadcast_to_k(x:np.ndarray, param_shape:tuple) -> np.ndarray:
         return x.reshape(x.shape[:-nd_param] + (k,))
 
 
-def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tuple or None=None) -> np.ndarray:
+def reverse_broadcast_from_k(x: np.ndarray, param_shape:tuple, suffix_shape:tuple | None=None) -> np.ndarray:
     """Reverse the broadcasting performed by the broadcast_to_k function.
 
     Parameters

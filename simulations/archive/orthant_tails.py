@@ -42,7 +42,6 @@ b = -0.28341952
 m_seq = np.linspace(-33, 33.1, 21)
 cdf = nts(m_seq, tau21, None, tau22, a, b, fix_mu=True, cdf_approach='scipy').cdf(x).flatten()
 print(pd.DataFrame({'cdf':cdf,'mu':m_seq}))
-breakpoint()
 
 """
 Another issue

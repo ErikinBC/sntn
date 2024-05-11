@@ -5,14 +5,14 @@ Contains the custom functions needed to estimate the CDF/Quantile of the NTS dis
 # Load modules
 import numpy as np
 from scipy.stats import norm
+from . import type_farray
 
-
-def _integrand_X12(x1, x2, rho) -> float | np.ndarray:
+def _integrand_X12(x1: type_farray, x2: type_farray, rho: type_farray) -> float | np.ndarray:
     """See bvn_cdf_diff"""
     return norm.cdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
 
 
-def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001) -> float | np.ndarray:
+def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray, n_points: int=1001) -> float | np.ndarray:
     """
     Calculates the difference in the CDF between two bivariate normals with a shared x1 and rho value:
 
@@ -27,6 +27,9 @@ def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001) -> float | np.ndarray:
     So the difference in the integrals is simply:
     int_{x2b}^{x2a} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
     """
+    # Broadcast...
+    breakpoint()
+    # ...
     d_points = (x2a - x2b) / (n_points - 1)
     points = np.linspace(x2b, x2a, num=n_points)
     y = _integrand_X12(x1=x1, x2=points, rho=rho)

@@ -55,6 +55,26 @@ grad1 = dbvn_cdf_diff(x1=mseq, x2a=delta, x2b=omega, rho=rho)
 grad2 = ((dist_BVN.cdf(x1=mseq+eps, x2=delta) - dist_BVN.cdf(x1=mseq+eps, x2=omega)) - (dist_BVN.cdf(x1=mseq-eps, x2=delta) - dist_BVN.cdf(x1=mseq-eps, x2=omega))) / (2*eps)
 print(pd.DataFrame({'m':mseq, 'dcdf':dist_BVN.cdf(x1=mseq, x2=delta) - dist_BVN.cdf(x1=mseq, x2=omega), 'grad1':grad1, 'grad2':grad2}).assign(slope=lambda x: x['dcdf'].diff() / (mseq[1] - mseq[0])).round(4).dropna().head(20))
 
+#####################################
+# !!! VECTORIZE DIFFERENCE IN CDF !!!
+
+nvec = 101
+m_seq = np.linspace(-0.5, 0.5, nvec)
+delta_seq = np.linspace(1, 2, nvec)
+omega_seq = delta_seq - 2
+dist_BVN.cdf(x1=m_seq, x2=delta_seq) - dist_BVN.cdf(x1=m_seq, x2=omega_seq)
+
+bvn_cdf_diff(x1=m_seq, x2a=delta_seq, x2b=omega_seq, rho=rho, n_points=1001)
+
+from timeit import timeit
+num = 25
+# Note that about 5000 iterations matches cdf...
+timeit("(dist_BVN.cdf(x1=m, x2=delta) - dist_BVN.cdf(x1=m, x2=omega))[0]", number=num, globals=globals())
+timeit("bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho, n_points=1001)", number=num, globals=globals())
+
+
+
+
 
 import sys
 sys.exit('stop here')
