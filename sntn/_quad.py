@@ -12,7 +12,7 @@ def _integrand_X12(x1, x2, rho) -> float | np.ndarray:
     return norm.cdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
 
 
-def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001, bound: int=10) -> float | np.ndarray:
+def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001) -> float | np.ndarray:
     """
     Calculates the difference in the CDF between two bivariate normals with a shared x1 and rho value:
 
@@ -27,15 +27,17 @@ def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001, bound: int=10) -> float 
     So the difference in the integrals is simply:
     int_{x2b}^{x2a} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
     """
-    d_points = 1 / (n_points - 1)
-    ub = np.where(x2a == +np.infty, +bound, x2a)
-    lb = np.where(x2b == -np.infty, -bound, x2b)
-    points = np.linspace(lb, ub, num=n_points)
+    d_points = (x2a - x2b) / (n_points - 1)
+    points = np.linspace(x2b, x2a, num=n_points)
     y = _integrand_X12(x1=x1, x2=points, rho=rho)
-    # y = np.squeeze(y)
+    y = np.squeeze(y)
     int_f = np.trapz(y, dx=d_points)
     return int_f
 
+def _integral110(z, a, b):
+        fb = np.sqrt(1 + b**2)
+        res = (1/fb) * norm.pdf(a / fb) * norm.cdf(z*fb + a*b/fb)
+        return res
 
 def dbvn_cdf_diff(x1, x2a, x2b, rho) -> float | np.ndarray:
     """
@@ -47,15 +49,11 @@ def dbvn_cdf_diff(x1, x2a, x2b, rho) -> float | np.ndarray:
     
     dI/dx1 = 1/sqrt(1-rho^2) int_{x2b}^{x2a} phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
 
-    This nicely has a closed form solution (see Owen 1980)
+    This nicely has a closed form solution (see https://en.wikipedia.org/wiki/List_of_integrals_of_Gaussian_functions and Owen 1980)
     """
-    def integral110(x, a, b):
-        fb = np.sqrt(1 + b**2)
-        res = (1/fb) * norm.pdf(a / fb) * norm.cdf(x*fb + a / fb)
-        return res
 
     frho = np.sqrt(1-rho**2)
     a = x1 / frho
     b = -rho / frho
-    val = (integral110(x2a, a, b) - integral110(x2b, a, b)) / frho
+    val = (_integral110(x2a, a, b) - _integral110(x2b, a, b)) / frho
     return val

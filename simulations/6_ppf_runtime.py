@@ -1,5 +1,7 @@
 """
 Do experiments on ppf solving runtime
+
+python3 -m simulations.6_ppf_runtime
 """
 
 # Load modules
@@ -24,90 +26,38 @@ seed = 1234
 
 from sntn._bvn import _bvn as bvn
 from scipy.integrate import quad
+from sntn._quad import bvn_cdf_diff, dbvn_cdf_diff
 
-def integrand_X1(x1, x2, rho) -> float | np.ndarray:
+def integrand_X2(x2, x1, rho) -> float | np.ndarray:
     """Note that x1 here is fixed"""
-    return norm.cdf((x2 - rho*x1)/np.sqrt(1-rho**2) ) * norm.pdf(x1)
-
-def _integrand_X12(x1, x2, rho) -> float | np.ndarray:
-    """See bvn_cdf_diff"""
     return norm.cdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
 
-def bvn_cdf_diff(x1, x2a, x2b, rho, n_points: int=1001) -> float | np.ndarray:
-    """
-    Calculates the difference in the CDF between two bivariate normals with a shared x1 and rho value:
-
-    BVN(rho).cdf(x1, x2a) - BVN(rho).cdf(x1, x2b)
-
-    Background
-    ==========
-    BVN(rho).cdf(x1, x2) = int_{-infty}^{x2} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
-
-    Since X1 | X2=z ~ N(rho*z, 1-rho^2)
-
-    So the difference in the integrals is simply:
-    int_{x2b}^{x2a} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
-    """
-    d_points = 1 / (n_points - 1)
-    points = np.linspace(x2b, x2a, num=n_points)
-    y = _integrand_X12(x1=x1, x2=points, rho=rho)
-    int_f = np.trapz(y, dx=d_points)
-    return int_f
-
-
-def dbvn_cdf_diff(x1, x2a, x2b, rho) -> float | np.ndarray:
-    """
-    Calculates the derivative of the integral:
-
-    I(x1; x2a, x2b, rho) = int_{x2b}^{x2a} Phi((x1 - rho*z)/sqrt(1-rho^2)) * phi(z) dz
-
-    w.r.t x1:
-    
-    dI/dx1 = 1/sqrt(1-rho^2) int_{x2b}^{x2a} phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
-
-    This nicely has a closed form solution (see Owen 1980)
-    """
-    def integral110(x, a, b):
-        fb = np.sqrt(1 + b**2)
-        res = (1/fb) * norm.pdf(a / fb) * norm.cdf(x*fb + a / fb)
-        return res
-
-    frho = np.sqrt(1-rho**2)
-    a = x1 / frho
-    b = -rho / frho
-    val = (integral110(x2a, a, b) - integral110(x2b, a, b)) / frho
-    return val
-
+def dx1_integrand_X2(x2, x1, rho) -> float | np.ndarray:
+    """Note that x1 here is fixed"""
+    return (1 / np.sqrt(1-rho**2)) * norm.pdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
 
 # We know rho, delta, and omega
-rho = 1/3
-delta = 22.50
-omega = 0.25
+rho = 0.62
+delta = 1.0
+omega = -2.0
 dist_BVN = bvn(0, 1, 0, 1, rho)
-m = 0.2
+m = -0.2
 target = 0.15
 # Will be the same...
-
 dcdf1 = (dist_BVN.cdf(x1=m, x2=delta) - dist_BVN.cdf(x1=m, x2=omega))[0]
-dcdf2 = quad(func=integrand_X1, a=omega, b=delta, args=(m, rho, ))[0]
-dcdf3 = bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho, n_points=1001)
-dcdf1; dcdf2; dcdf3
-points = np.linspace(omega, delta, 10001)
-np.trapz(integrand_X1(x1=points, x2=m, rho=rho), x=points)
-np.sum(integrand_X1(x1=points, x2=m, rho=rho) * (delta - omega) / 10000)
+dcdf2 = quad(func=integrand_X2, a=omega, b=delta, args=(m, rho, ))[0]
+dcdf3 = bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho, n_points=501)
+print(dcdf1); print(dcdf2); print(dcdf3)
+
+mseq = np.linspace(-0.5, 5, 101)
+eps = 1e-5
+grad1 = dbvn_cdf_diff(x1=mseq, x2a=delta, x2b=omega, rho=rho)
+grad2 = ((dist_BVN.cdf(x1=mseq+eps, x2=delta) - dist_BVN.cdf(x1=mseq+eps, x2=omega)) - (dist_BVN.cdf(x1=mseq-eps, x2=delta) - dist_BVN.cdf(x1=mseq-eps, x2=omega))) / (2*eps)
+print(pd.DataFrame({'m':mseq, 'dcdf':dist_BVN.cdf(x1=mseq, x2=delta) - dist_BVN.cdf(x1=mseq, x2=omega), 'grad1':grad1, 'grad2':grad2}).assign(slope=lambda x: x['dcdf'].diff() / (mseq[1] - mseq[0])).round(4).dropna().head(20))
 
 
-bvn_cdf_diff(x1=0.11, x2a=delta, x2b=omega, rho=rho, n_points=101) - bvn_cdf_diff(x1=0.10, x2a=delta, x2b=omega, rho=rho, n_points=101)
-
-bvn_cdf_diff(x1=0.10, x2a=delta, x2b=omega, rho=rho) + 0.01*dbvn_cdf_diff(x1=0.10, x2a=delta, x2b=omega, rho=rho)
-
-
-eps = 1e-10
-np.array([(quad(func=integrand_X1, a=omega, b=delta, args=(z+eps, rho, ))[0] - quad(func=integrand_X1, a=omega, b=delta, args=(z-eps, rho, ))[0]) / (2*eps) for z in np.linspace(-0.5, 0.5)])
-
-
-
-
+import sys
+sys.exit('stop here')
 
 
 
