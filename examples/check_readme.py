@@ -25,6 +25,7 @@ n, p, s = 100, 150, 12
 beta0 = np.zeros(p)
 b = 0.35
 beta0[:s] = b
+null_beta = 0
 np.random.seed(seed)
 x = np.random.randn(n,p)
 g = x.dot(beta0)
