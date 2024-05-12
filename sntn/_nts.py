@@ -155,19 +155,18 @@ class _nts():
             cdf1 = self.bvn.cdf(x1=m1, x2=self.alpha)
             cdf2 = self.bvn.cdf(x1=m1, x2=self.beta)
             pval = (cdf2 - cdf1) / self.Z
+            # Do some cleanup for the tails
+            # If cdf2 and cdf1 are ~100%, then tail is so extreme solution is one
+            pval[(cdf2 - cdf1 == 0) & (cdf2.round() == 1)] = 1
+            # If Z is zero, then it's going to be zero
+            pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
+            # Return to proper shape
+            pval = reverse_broadcast_from_k(pval, self.param_shape)
+            # Bound b/w [0,1]
+            pval = np.clip(pval, 0, 1)
         if method == 'quad':
             from sntn._quad import bvn_cdf_diff
             pval = bvn_cdf_diff(x1=m1, x2a=self.beta, x2b=self.alpha, rho=self.rho, **kwargs) / self.Z
-
-        # Do some cleanup for the tails
-        # If cdf2 and cdf1 are ~100%, then tail is so extreme solution is one
-        pval[(cdf2 - cdf1 == 0) & (cdf2.round() == 1)] = 1
-        # If Z is zero, then it's going to be zero
-        pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
-        # Return to proper shape
-        pval = reverse_broadcast_from_k(pval, self.param_shape)
-        # Bound b/w [0,1]
-        pval = np.clip(pval, 0, 1)
         return pval
             
 
