@@ -20,6 +20,24 @@ dof = n + m - 1
 Delta = k * np.sqrt(sigma2 / n)
 seed = 1234
 
+################################
+# --- (X) QUANTILE FINDING --- #
+
+from sntn._bvn import _bvn as bvn
+from sntn._quad import dbvn_cdf_diff
+from scipy.optimize import root_scalar
+
+nparams = 13
+
+mu1 = norm.rvs(size=nparams, random_state=seed)
+mu2 = norm.rvs(size=nparams, random_state=seed+1)
+sigma21 = chi2(df=1).rvs(size=nparams, random_state=seed)
+sigma22 = chi2(df=1).rvs(size=nparams, random_state=seed+1)
+rho = uniform.rvs(size=nparams, random_state=seed)
+
+dist_nts = bvn(mu1, sigma21, mu2, sigma22, rho)
+dist_nts.rho
+
 
 ############################
 # --- (0) CLOSED FORM? --- #
@@ -77,14 +95,6 @@ timeit("bvn_cdf_diff(x1=m_seq, x2a=delta_seq, x2b=omega_seq, rho=rho, n_points=5
 # univariate Note that about 5000 iterations matches cdf...
 timeit("(dist_BVN.cdf(x1=m, x2=delta) - dist_BVN.cdf(x1=m, x2=omega))[0]", number=num, globals=globals())
 timeit("bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho, n_points=1001)", number=num, globals=globals())
-
-
-
-
-
-import sys
-sys.exit('stop here')
-
 
 
 ############################
