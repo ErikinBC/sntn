@@ -59,6 +59,10 @@ print(pd.DataFrame({'m':mseq, 'dcdf':dist_BVN.cdf(x1=mseq, x2=delta) - dist_BVN.
 #####################################
 # !!! VECTORIZE DIFFERENCE IN CDF !!!
 
+from timeit import timeit
+num = 25
+
+# vectorized
 nvec = 107
 m_seq = np.linspace(-0.5, 0.5, nvec)
 delta_seq = np.linspace(1, 2, nvec)
@@ -67,14 +71,13 @@ vec_scipy = dist_BVN.cdf(x1=m_seq, x2=delta_seq) - dist_BVN.cdf(x1=m_seq, x2=ome
 vec_cust = bvn_cdf_diff(x1=m_seq, x2a=delta_seq, x2b=omega_seq, rho=rho, n_points=501)
 pd.DataFrame({'scipy':vec_scipy, 'cust':vec_cust}).round(4)
 
-from timeit import timeit
-num = 25
-# Note that about 5000 iterations matches cdf...
+timeit("dist_BVN.cdf(x1=m_seq, x2=delta_seq) - dist_BVN.cdf(x1=m_seq, x2=omega_seq)", number=num, globals=globals())
+timeit("bvn_cdf_diff(x1=m_seq, x2a=delta_seq, x2b=omega_seq, rho=rho, n_points=501)", number=num, globals=globals())
+
+# univariate Note that about 5000 iterations matches cdf...
 timeit("(dist_BVN.cdf(x1=m, x2=delta) - dist_BVN.cdf(x1=m, x2=omega))[0]", number=num, globals=globals())
 timeit("bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho, n_points=1001)", number=num, globals=globals())
 
-timeit("dist_BVN.cdf(x1=m_seq, x2=delta_seq) - dist_BVN.cdf(x1=m_seq, x2=omega_seq)", number=num, globals=globals())
-timeit("bvn_cdf_diff(x1=m_seq, x2a=delta_seq, x2b=omega_seq, rho=rho, n_points=501)", number=num, globals=globals())
 
 
 
