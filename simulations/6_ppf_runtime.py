@@ -11,6 +11,59 @@ from sntn import dists
 from time import time
 from timeit import timeit
 from scipy.stats import chi2, norm, uniform
+
+seed = 1234
+tnum = 100
+
+###########################
+# --- (1) FASTEST CDF --- #
+
+from sntn._bvn import _bvn as bvn
+from scipy.stats import multivariate_normal as mvn
+from sntn._quad import bvn_cdf_diff
+
+# Check the scalar
+rho = 0.62
+delta = 1.0
+omega = -2.0
+m = -0.2
+
+bvn_owen = bvn(0, 1, 0, 1, rho, cdf_approach='owen')
+q1 = bvn_owen.cdf(x1=m, x2=delta) - bvn_owen.cdf(x1=m, x2=omega)
+q2 = bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho)
+q1 - q2
+
+...
+
+# Check speed on vector
+n = 105
+rho = 4/5
+x = norm.rvs(size=[n, 2], random_state=seed)
+x1, x2 = x.T
+bvn_scipy = bvn(0, 1, 0, 1, rho, cdf_approach='scipy')
+bvn_owen = bvn(0, 1, 0, 1, rho, cdf_approach='owen')
+bvn_mvn = mvn(mean=[0,0],cov=[[1,rho],[rho,1]])
+cdf_scipy = bvn_scipy.cdf(x1=x1, x2=x2)
+cdf_owen = bvn_owen.cdf(x1=x1, x2=x2)
+cdf_mvn = bvn_mvn.cdf(x)
+
+timeit("bvn_owen.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
+timeit("bvn_scipy.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
+timeit("bvn_mvn.cdf(x)", globals=globals(), number=tnum)
+
+# Check accuracy on difference
+np.abs(bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho) - (bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega))).max()
+
+timeit("bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho)", globals=globals(), number=tnum)
+timeit("bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega)", globals=globals(), number=tnum)
+
+
+import sys
+sys.exit('stop here')
+
+################################
+# --- (X) QUANTILE FINDING --- #
+
 # Define parameters
 n = 96
 m = 158
@@ -18,10 +71,6 @@ sigma2 = 2.7
 k = 0.5
 dof = n + m - 1
 Delta = k * np.sqrt(sigma2 / n)
-seed = 1234
-
-################################
-# --- (X) QUANTILE FINDING --- #
 
 from sntn._bvn import _bvn as bvn
 from sntn._quad import dbvn_cdf_diff
@@ -76,9 +125,6 @@ print(pd.DataFrame({'m':mseq, 'dcdf':dist_BVN.cdf(x1=mseq, x2=delta) - dist_BVN.
 
 #####################################
 # !!! VECTORIZE DIFFERENCE IN CDF !!!
-
-from timeit import timeit
-num = 25
 
 # vectorized
 nvec = 107
