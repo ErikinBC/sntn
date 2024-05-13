@@ -4,23 +4,66 @@ Do experiments on ppf solving runtime
 python3 -m simulations.6_ppf_runtime
 """
 
-# Load modules
+# External modules
 import numpy as np
 import pandas as pd
-from sntn import dists
 from time import time
 from timeit import timeit
-from scipy.stats import chi2, norm, uniform
+from scipy.stats import chi2, norm, uniform, expon
+# Internal modules
+from sntn import dists
+from sntn._quad import bvn_cdf_diff
 
 seed = 1234
 tnum = 100
+
+
+##########################
+# --- (1) M-QUANTILE --- #
+
+# note that in the SNTN CDF, m1(z) = (z - theta1)/sigma1
+#       so z(m1) = sigma1*m1 + theta1
+
+# Some parameters
+nsim = 1
+alpha = 0.13
+
+# Generate data
+mu1 = norm.rvs(size=nsim, random_state=seed)
+mu2 = norm.rvs(size=nsim, random_state=seed+1)
+tau21 = expon(scale=1).rvs(size=nsim, random_state=seed)
+tau22 = expon(scale=1).rvs(size=nsim, random_state=seed+1)
+a = uniform(loc=-3, scale=1).rvs(size=nsim, random_state=seed)
+b = a + 4
+
+# Check that default PPF works as expected
+dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
+quant_p = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha)))
+p_quant = np.atleast_1d(np.squeeze(dist_sntn.cdf(quant_p)))
+print(f'Calculated quantile={quant_p[0]:.3f} for p-value ({alpha:.2f}), and cdf={p_quant[0]:.3f}')
+
+# Check it can be recovered with bvn_cdf_diff
+m_p = (quant_p - dist_sntn.theta1) / dist_sntn.sigma1
+target_p = dist_sntn.Z * alpha
+# np.testing.assert_allclose(bvn_cdf_diff(m_p, dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho) / dist_sntn.Z , alpha)
+np.testing.assert_allclose(bvn_cdf_diff(m_p, dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho) , target_p)
+
+# Quick and dirty root finding
+from scipy.optimize import root_scalar
+
+rootfun = lambda z, ub, lb, rho, p: bvn_cdf_diff(z, ub, lb, rho) - p
+
+m_p_root = root_scalar(f=rootfun, args=(dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho, target_p), method='brentq', bracket=(-6, 6)).root
+np.testing.assert_allclose(m_p, m_p_root)
+quant_root = m_p_root*dist_sntn.sigma1 + dist_sntn.theta1
+np.testing.assert_allclose(quant_root, quant_p)
+
 
 ###########################
 # --- (1) FASTEST CDF --- #
 
 from sntn._bvn import _bvn as bvn
 from scipy.stats import multivariate_normal as mvn
-from sntn._quad import bvn_cdf_diff
 
 # Check the scalar
 rho = 0.62
