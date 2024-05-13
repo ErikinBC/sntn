@@ -31,9 +31,7 @@ m = -0.2
 bvn_owen = bvn(0, 1, 0, 1, rho, cdf_approach='owen')
 q1 = bvn_owen.cdf(x1=m, x2=delta) - bvn_owen.cdf(x1=m, x2=omega)
 q2 = bvn_cdf_diff(x1=m, x2a=delta, x2b=omega, rho=rho)
-q1 - q2
-
-...
+print(np.abs(q1 - q2).max())
 
 # Check speed on vector
 n = 105
@@ -47,16 +45,17 @@ cdf_scipy = bvn_scipy.cdf(x1=x1, x2=x2)
 cdf_owen = bvn_owen.cdf(x1=x1, x2=x2)
 cdf_mvn = bvn_mvn.cdf(x)
 
-timeit("bvn_owen.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
-timeit("bvn_scipy.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
-timeit("bvn_mvn.cdf(x)", globals=globals(), number=tnum)
-
 # Check accuracy on difference
-np.abs(bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho) - (bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega))).max()
+print(np.abs(bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho) - (bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega))).max())
 
-timeit("bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho)", globals=globals(), number=tnum)
-timeit("bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega)", globals=globals(), number=tnum)
+tnum = 1000
+tdiff = timeit("bvn_cdf_diff(x1=x1, x2a=delta, x2b=omega, rho=rho)", globals=globals(), number=tnum)
+towen = timeit("bvn_owen.cdf(x1=x1, x2=delta) - bvn_owen.cdf(x1=x1, x2=omega)", globals=globals(), number=tnum)
+print(f'Run-time for vector of length {n}, {tnum} times:\nbvn_cdf_diff={tdiff:0.2f}, bvn_owen={towen:0.2f}')
 
+# timeit("bvn_owen.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
+# timeit("bvn_scipy.cdf(x1=x1, x2=x2)", globals=globals(), number=tnum)
+# timeit("bvn_mvn.cdf(x)", globals=globals(), number=tnum)
 
 import sys
 sys.exit('stop here')
