@@ -164,9 +164,6 @@ class _nts():
             pval = reverse_broadcast_from_k(pval, self.param_shape)
             # Bound b/w [0,1]
             pval = np.clip(pval, 0, 1)
-        if method == 'quad':
-            from sntn._quad import bvn_cdf_diff
-            pval = bvn_cdf_diff(x1=m1, x2a=self.beta, x2b=self.alpha, rho=self.rho, **kwargs) / self.Z
         return pval
             
 

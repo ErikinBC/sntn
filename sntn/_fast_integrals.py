@@ -4,16 +4,24 @@ Contains the custom functions needed to estimate the CDF/Quantile of the NTS dis
 
 # Load modules
 import numpy as np
+import scipy.special as sc
 from scipy.stats import norm
-from scipy.special import owens_t
 from . import type_farray
 
-def _indicator(ineq: type_farray) -> bool:
-    if isinstance(ineq, np.ndarray):
-          return ineq.astype(int)
-    else:
-         return int(ineq)
+def _log_diff(log_p, log_q):
+    return sc.logsumexp([log_p, log_q+np.pi*1j], axis=0)
 
+def _log_gauss_mass(a, b):
+    return _log_diff(sc.log_ndtr(b), sc.log_ndtr(a))
+
+
+def Phi_diff(ub: type_farray, lb: type_farray) -> type_farray:
+     """
+     Calculates the difference between Gaussian CDFs:
+     Phi(ub) - Phi(lb), where ub > lb
+     """
+     return np.abs(np.exp(_log_gauss_mass(ub, lb).real))
+     
 
 def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray):
     """
@@ -40,8 +48,8 @@ def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_
     den2b = (x2b/x1-rho) / rootrho
     term1_a = norm.cdf(x2a) - norm.cdf(x2b)
     term1_b = np.array(x1 / x2a < 0).astype(int) - np.array(x1 / x2b < 0).astype(int)
-    term2_a = owens_t(x2a, den1a) - owens_t(x2b, den1b)
-    term2_b = owens_t(x1, den2a) - owens_t(x1, den2b)
+    term2_a = sc.owens_t(x2a, den1a) - sc.owens_t(x2b, den1b)
+    term2_b = sc.owens_t(x1, den2a) - sc.owens_t(x1, den2b)
     pval = 0.5*(term1_a - term1_b) - (term2_a + term2_b)
     return pval
 
@@ -50,6 +58,12 @@ def _integrand_X12(x1: type_farray, x2: type_farray, rho: type_farray) -> type_f
     """See bvn_cdf_diff"""
     return norm.cdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
 
+
+# def _indicator(ineq: type_farray) -> bool:
+#     if isinstance(ineq, np.ndarray):
+#           return ineq.astype(int)
+#     else:
+#          return int(ineq)
 
 # def _bvn_integral(z: type_farray, a: type_farray, b: type_farray) -> type_farray:
 #      rootb = np.sqrt(1 + b**2)
