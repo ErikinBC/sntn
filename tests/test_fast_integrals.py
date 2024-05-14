@@ -15,7 +15,7 @@ from scipy.optimize import check_grad
 from numpy.testing import assert_allclose
 # Internal
 from sntn._bvn import _bvn as bvn
-from sntn._fast_integrals import Phi_diff, bvn_cdf_diff, dbvn_cdf_diff
+from sntn._fast_integrals import Phi_diff, bvn_cdf_diff, dbvn_cdf_diff, _dbvn_cdf_diff, d2bvn_cdf_diff
 
 # Parameters configuration as a fixture
 @pytest.fixture(scope="module", params=[(1e-7, 1234, 5692)])
@@ -75,7 +75,21 @@ def test_dcdf_diff(test_params) -> None:
     """
     atol, di_size_vec, di_size_mat = _return_arg_dicts(test_params)
     x1, x2a, x2b, rho = _gen_x1_x2ab_rho(di_size_mat, di_size_vec)
+    grad_manual = _dbvn_cdf_diff(x1=x1, x2a=x2a, x2b=x2b, rho=rho)
+    grad_reduced = dbvn_cdf_diff(x1=x1, x2a=x2a, x2b=x2b, rho=rho)
+    assert_allclose(actual=grad_reduced, desired=grad_manual, atol=atol)
+    print(f'Reduced form equation basically idential: {np.abs(grad_reduced - grad_manual).max()}')
     grad_diff = [check_grad(bvn_cdf_diff, dbvn_cdf_diff, x1_i, x2a_i, x2b_i, rho_i) for (x1_i, x2a_i, x2b_i, rho_i) in zip(x1, x2a, x2b, rho)]
-    # grad_diff = [check_grad(func=lambda x: x**2, grad=lambda x: 2*x, x0=x0) for x0 in np.array([3,4])]
     assert_allclose(actual=grad_diff, desired=0, atol=atol)
     print(f'\nMaximum grad error for dPhi(a,b; x1, rho) = {np.abs(grad_diff).max()} (size={rho.shape[0]})\n')
+
+
+def test_d2cdf_diff(test_params) -> None:
+    """
+    Make sure we can accurately calculate the gradient of dbvn_cdf_diff w.r.t x1
+    """
+    atol, di_size_vec, di_size_mat = _return_arg_dicts(test_params)
+    x1, x2a, x2b, rho = _gen_x1_x2ab_rho(di_size_mat, di_size_vec)
+    grad_diff = [check_grad(dbvn_cdf_diff, d2bvn_cdf_diff, x1_i, x2a_i, x2b_i, rho_i) for (x1_i, x2a_i, x2b_i, rho_i) in zip(x1, x2a, x2b, rho)]
+    assert_allclose(actual=grad_diff, desired=0, atol=atol)
+    print(f'\nMaximum grad error for d^2Phi(a,b; x1, rho)/dx1^2 = {np.abs(grad_diff).max()} (size={rho.shape[0]})\n')

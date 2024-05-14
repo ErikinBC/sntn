@@ -14,7 +14,7 @@ from scipy.stats import chi2, norm, uniform, expon
 # Internal modules
 from sntn import dists
 from sntn._bvn import _bvn as bvn
-from sntn._fast_integrals import bvn_cdf_diff, Phi_diff
+from sntn._fast_integrals import Phi_diff, bvn_cdf_diff, dbvn_cdf_diff, d2bvn_cdf_diff
 
 # Set seed
 seed = 1234
@@ -59,6 +59,9 @@ nsim / tym_ppf_bl
 
 # Check that rootfun finds the first quantile
 rootfun = lambda z, ub, lb, rho, p: bvn_cdf_diff(z, ub, lb, rho) - p
+drootfun = lambda z, ub, lb, rho, p: dbvn_cdf_diff(z, ub, lb, rho)
+d2rootfun = lambda z, ub, lb, rho, p: d2bvn_cdf_diff(z, ub, lb, rho)
+
 
 m_p_root = root_scalar(f=rootfun, args=(dist_sntn.beta[0], dist_sntn.alpha[0], dist_sntn.rho[0], target_p[0]), method='brentq', bracket=(-5, 5)).root
 np.testing.assert_allclose(m_p[0], m_p_root)
@@ -85,13 +88,18 @@ for solver in solvers:
         stime = time()
         for i in range(nsim):
             roots[i] = root_scalar(f=rootfun, args=(dist_sntn.beta[i], dist_sntn.alpha[i], dist_sntn.rho[i], target_p[i]), method=solver, x0=x0, x1=x1).root
+    if solver in solvers_grad:
+        stime = time()
+        for i in range(nsim):
+            roots[i] = root_scalar(f=rootfun, args=(dist_sntn.beta[i], dist_sntn.alpha[i], dist_sntn.rho[i], target_p[i]), method=solver, x0=x0, fprime=drootfun).root
     dtime = time() - stime
     df_i = pd.DataFrame({'solver':solver, 'dtime':dtime, 'roots':roots})
     holder_solver.append(df_i)
 
 # Run the solvers that need 
-
-pd.concat(holder_solver).groupby('solver')['dtime'].max().reset_index().assign(rate=lambda x: nsim/x['dtime'])
+res_solvers = pd.concat(holder_solver).rename_axis('idx')
+res_solvers.reset_index().pivot(index='idx',columns='solver', values='roots')
+res_solvers.groupby('solver')['dtime'].max().reset_index().assign(rate=lambda x: nsim/x['dtime'])
 
 
 

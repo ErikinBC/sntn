@@ -6,7 +6,7 @@ Contains the custom functions needed to estimate the CDF/Quantile of the NTS dis
 import numpy as np
 import scipy.special as sc
 from scipy.stats import norm
-from . import type_farray
+from sntn import type_farray
 
 def _log_diff(log_p, log_q):
     return sc.logsumexp([log_p, log_q+np.pi*1j], axis=0)
@@ -109,14 +109,26 @@ def bvn_cdf_diff_trapz(x1: type_farray, x2a: type_farray, x2b: type_farray, rho:
     return integral  # integral = np.trapz(integrand, x=points, axis=-1)
     
 
-
-
-def _integral110(z, a, b):
+def _integral110(z: type_farray, a: type_farray, b: type_farray) -> type_farray:
+        """See """
         fb = np.sqrt(1 + b**2)
         res = (1/fb) * norm.pdf(a / fb) * norm.cdf(z*fb + a*b/fb)
         return res
 
-def dbvn_cdf_diff(x1, x2a, x2b, rho) -> float | np.ndarray:
+
+def _dbvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray) -> type_farray:
+    """
+    See dbvn_cdf_diff before simplifcation
+    """
+
+    frho = np.sqrt(1-rho**2)
+    a = x1 / frho
+    b = -rho / frho
+    val = (_integral110(x2a, a, b) - _integral110(x2b, a, b)) / frho
+    return val
+
+
+def dbvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray) -> type_farray:
     """
     Calculates the derivative of the integral:
 
@@ -125,12 +137,33 @@ def dbvn_cdf_diff(x1, x2a, x2b, rho) -> float | np.ndarray:
     w.r.t x1:
     
     dI/dx1 = 1/sqrt(1-rho^2) int_{x2b}^{x2a} phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
+           = 1/sqrt(1-rho^2) [ (1/t)*phi(a/t)*Phi(tz + ab/t) ]|_2xb^x2a
+           where a = x1/sqrt(1-rho^2), b = -rho/sqrt(1-rho^2), and t = sqrt(1 + b^2)
 
-    This nicely has a closed form solution (see https://en.wikipedia.org/wiki/List_of_integrals_of_Gaussian_functions and Owen 1980)
+    From the closed form solution (see https://en.wikipedia.org/wiki/List_of_integrals_of_Gaussian_functions and Owen 1980)
+
+    But after simplifcation, this simply reduces to:
+            = phi(x1) [Phi(z-x1*rho)]|_2xb^x2a
     """
-
-    frho = np.sqrt(1-rho**2)
-    a = x1 / frho
-    b = -rho / frho
-    val = (_integral110(x2a, a, b) - _integral110(x2b, a, b)) / frho
+    sigma_rho = np.sqrt(1-rho**2)
+    ub = (x2a - x1*rho) / sigma_rho
+    lb = (x2b - x1*rho) / sigma_rho
+    val = norm.pdf(x1) * Phi_diff(ub, lb)
     return val
+
+
+def d2bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray) -> type_farray:
+    """
+    Calculates the derivative of the integral:
+
+    D(x1; x2a, x2b, rho) = 1/sqrt(1-rho^2) int_{x2b}^{x2a} phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
+    
+    w.r.t x1:
+    
+    D(x1; x2a, x2b, rho) = dD/dx1
+        = -(1-rho^2)^{-1.5} int_{x2b}^{x2a} (x1-rho*z) phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
+        ... 
+
+    since dphi(x; mu, sigma) = -phi(x; mu, sigma) * [(x-mu)/sigma^2]
+    """
+    return None
