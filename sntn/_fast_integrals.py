@@ -143,7 +143,7 @@ def dbvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type
     From the closed form solution (see https://en.wikipedia.org/wiki/List_of_integrals_of_Gaussian_functions and Owen 1980)
 
     But after simplifcation, this simply reduces to:
-            = phi(x1) [Phi(z-x1*rho)]|_2xb^x2a
+            = phi(x1) [Phi((z-x1*rho)/sqrt(1-rho^2))]|_2xb^x2a
     """
     sigma_rho = np.sqrt(1-rho**2)
     ub = (x2a - x1*rho) / sigma_rho
@@ -157,13 +157,15 @@ def d2bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: typ
     Calculates the derivative of the integral:
 
     D(x1; x2a, x2b, rho) = 1/sqrt(1-rho^2) int_{x2b}^{x2a} phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
+                         = phi(x1) [Phi((z-x1*rho)/sqrt(1-rho^2))]|_2xb^x2a
     
     w.r.t x1:
     
-    D(x1; x2a, x2b, rho) = dD/dx1
-        = -(1-rho^2)^{-1.5} int_{x2b}^{x2a} (x1-rho*z) phi((x1-rho*z)/sqrt(1-rho^2)) phi(z) dz
-        ... 
-
-    since dphi(x; mu, sigma) = -phi(x; mu, sigma) * [(x-mu)/sigma^2]
+    D2(x1; x2a, x2b, rho) = dD/dx1
+        = -phi(x1) [x1 * Phi((z-x1*rho)/sqrt(1-rho^2)) + phi((z-x1*rho)/sqrt(1-rho^2))]|_2xb^x2a
     """
-    return None
+    sigma_rho = np.sqrt(1-rho**2)
+    ub = (x2a - x1*rho) / sigma_rho
+    lb = (x2b - x1*rho) / sigma_rho
+    val = -norm.pdf(x1) * ( x1 * Phi_diff(ub, lb) + (rho/sigma_rho) * (norm.pdf(ub) - norm.pdf(lb)) )
+    return val

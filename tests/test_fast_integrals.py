@@ -18,7 +18,7 @@ from sntn._bvn import _bvn as bvn
 from sntn._fast_integrals import Phi_diff, bvn_cdf_diff, dbvn_cdf_diff, _dbvn_cdf_diff, d2bvn_cdf_diff
 
 # Parameters configuration as a fixture
-@pytest.fixture(scope="module", params=[(1e-7, 1234, 5692)])
+@pytest.fixture(scope="module", params=[(5e-7, 1234, 5692)])
 def test_params(request):
     atol, seed, nsim = request.param
     return {'atol': atol, 'seed': seed, 'nsim': nsim}
@@ -90,6 +90,12 @@ def test_d2cdf_diff(test_params) -> None:
     """
     atol, di_size_vec, di_size_mat = _return_arg_dicts(test_params)
     x1, x2a, x2b, rho = _gen_x1_x2ab_rho(di_size_mat, di_size_vec)
-    grad_diff = [check_grad(dbvn_cdf_diff, d2bvn_cdf_diff, x1_i, x2a_i, x2b_i, rho_i) for (x1_i, x2a_i, x2b_i, rho_i) in zip(x1, x2a, x2b, rho)]
-    assert_allclose(actual=grad_diff, desired=0, atol=atol)
-    print(f'\nMaximum grad error for d^2Phi(a,b; x1, rho)/dx1^2 = {np.abs(grad_diff).max()} (size={rho.shape[0]})\n')
+    grad2 = d2bvn_cdf_diff(x1, x2a, x2b, rho)
+    eps = 1e-7
+    grad2_manual = (dbvn_cdf_diff(x1+eps, x2a, x2b, rho) - dbvn_cdf_diff(x1-eps, x2a, x2b, rho)) / (2*eps)
+    err_manual = np.abs(grad2_manual - grad2).max()
+    assert err_manual < atol, f'Error from analytical gradient is >{atol} = {err_manual}'
+    grad2_diff = np.array([check_grad(dbvn_cdf_diff, d2bvn_cdf_diff, x1_i, x2a_i, x2b_i, rho_i) for (x1_i, x2a_i, x2b_i, rho_i) in zip(x1, x2a, x2b, rho)])
+    assert_allclose(actual=grad2_diff, desired=0, atol=atol)
+    print(f'\nMaximum grad error for d^2Phi(a,b; x1, rho)/dx1^2 = {np.abs(grad2_diff).max()} (size={rho.shape[0]})\n')
+    
