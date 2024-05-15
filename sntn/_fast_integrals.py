@@ -5,7 +5,9 @@ Contains the custom functions needed to estimate the CDF/Quantile of the NTS dis
 # Load modules
 import numpy as np
 import scipy.special as sc
+from warnings import warn
 from scipy.stats import norm
+from scipy.optimize import newton
 from sntn import type_farray
 
 def _log_diff(log_p, log_q):
@@ -57,21 +59,6 @@ def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_
 def _integrand_X12(x1: type_farray, x2: type_farray, rho: type_farray) -> type_farray:
     """See bvn_cdf_diff"""
     return norm.cdf((x1 - rho*x2)/np.sqrt(1-rho**2) ) * norm.pdf(x2)
-
-
-# def _indicator(ineq: type_farray) -> bool:
-#     if isinstance(ineq, np.ndarray):
-#           return ineq.astype(int)
-#     else:
-#          return int(ineq)
-
-# def _bvn_integral(z: type_farray, a: type_farray, b: type_farray) -> type_farray:
-#      rootb = np.sqrt(1 + b**2)
-#      beta = np.where(a / (z * rootb) < 0, 1, 0)
-#      term1 = norm.cdf(z) + norm.cdf(a / rootb) - beta
-#      term2 = owens_t(z, a/z + b) + owens_t(a/rootb, b + z*(1 + b**2)/a)
-#      res = 0.5 * term1 - term2
-#      return res
 
 
 def bvn_cdf_diff_trapz(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_farray, n_points: int=1001) -> float | np.ndarray:
@@ -169,3 +156,69 @@ def d2bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: typ
     lb = (x2b - x1*rho) / sigma_rho
     val = -norm.pdf(x1) * ( x1 * Phi_diff(ub, lb) + (rho/sigma_rho) * (norm.pdf(ub) - norm.pdf(lb)) )
     return val
+
+
+def _modified_sigmoid(x, ub:float=5, slope:float=1, lb:float=0.1):
+        """
+        Function to bound the output to ±ub with the smallest absolute value of ±lb, takes on a sigmoid-like shape, with the high the slope, the more quickly we get to the ub
+        """
+        return np.sign(x) * (ub * np.tanh(slope * np.abs(x)) + lb)
+
+def _grad_clip(grad:np.ndarray, clip_low: float=1e-4, clip_high: float=5):
+    """Wrapper to do gradient clipping to keep away from zero or possibly a high number"""
+    grad_clip = np.sign(grad) * np.clip(np.abs(grad), clip_low, clip_high)
+    return grad_clip
+
+
+def _rootfinder_newton(
+          ub: type_farray, 
+          lb: type_farray,
+          rho: type_farray,
+          target_p: type_farray,
+          x0_vec: type_farray = -1.0, 
+          use_hess: bool = True,
+          clip_low: float = 1e-1, 
+          clip_high: float = 5,
+          tol: float=1e-8
+        ) -> np.ndarray:
+    """
+    Wrapper to support finding the roots of quantile for the SNTN distribution:
+    {m: BVN(m,alpha,rho) - BVN(m, beta, rho) ~= alpha*Z }
+
+    Inputs
+    ======
+    ub: type_farray
+        The alpha > beta
+    lb: type_farray
+        The beta < alpha
+    rho: type_farray
+        The correlation coefficient
+    target_p: type_farray
+        The value of the binomial CDF difference to target
+    x0_vec: Optional[float]
+        The value to start the root finding algorithm at
+    use_hess: bool = True
+        Whether the second-order information should be used
+    clip_low: float = 1e-2
+        Smallest absolute gradient allowed
+    clip_high: float = 5
+        Largest absolute gradient allowed
+    Returns
+    =======
+    The root-finding m-value which will need to be transformed to get to the original scale since m(z)=(z-theta)/sigma
+    """
+    # Set up the functions
+    _rootfun = lambda z, ub, lb, rho, p: bvn_cdf_diff(z, ub, lb, rho) - p
+    _drootfun = lambda z, ub, lb, rho, _: _grad_clip(dbvn_cdf_diff(z, ub, lb, rho), clip_low, clip_high)
+    _d2rootfun = lambda z, ub, lb, rho, _: d2bvn_cdf_diff(z, ub, lb, rho)
+    # Make sure values are broadcasted
+    x0_vec, ub, lb, rho, target_p = np.broadcast_arrays(x0_vec, ub, lb, rho, target_p)
+    # Prepare function arguments
+    di_newton = {'func':_rootfun, 'x0':x0_vec, 'fprime':_drootfun, 'args':(ub, lb, rho, target_p)}
+    if use_hess:
+       di_newton['fprime2'] = _d2rootfun
+    roots = newton(**di_newton)
+    mx_err = np.abs(_rootfun(roots, ub, lb, rho, target_p)).max()
+    if mx_err > tol:
+         warn(f'One or more roots did non convergence to within {tol} = {mx_err}')
+    return roots
