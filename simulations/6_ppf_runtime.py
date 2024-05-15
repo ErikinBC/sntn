@@ -50,8 +50,7 @@ target_p = dist_sntn.Z * alpha
 np.testing.assert_allclose(bvn_cdf_diff(m_p, dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho) , target_p)
 
 # Quick and dirty root finding
-from scipy.optimize import root
-from scipy.optimize import root_scalar
+from scipy.optimize import root_scalar, root, newton
 
 # Get the baseline time
 tym_ppf_bl = timeit("dist_sntn.ppf(p=alpha)", globals=globals(), number=1)
@@ -59,9 +58,12 @@ nsim / tym_ppf_bl
 
 # Check that rootfun finds the first quantile
 rootfun = lambda z, ub, lb, rho, p: bvn_cdf_diff(z, ub, lb, rho) - p
-drootfun = lambda z, ub, lb, rho, p: dbvn_cdf_diff(z, ub, lb, rho)
+drootfun = lambda z, ub, lb, rho, p: d2bvn_cdf_diff(z, ub, lb, rho)
+def drootfun_clip(z, ub, lb, rho, clip_low:float=0.1, clip_high:float=1.1):
+    grad = dbvn_cdf_diff(z, ub, lb, rho)
+    grad_clip = np.sign(grad) * np.clip(np.abs(grad), clip_low, clip_high)
+    return grad_clip
 d2rootfun = lambda z, ub, lb, rho, p: d2bvn_cdf_diff(z, ub, lb, rho)
-
 
 m_p_root = root_scalar(f=rootfun, args=(dist_sntn.beta[0], dist_sntn.alpha[0], dist_sntn.rho[0], target_p[0]), method='brentq', bracket=(-5, 5)).root
 np.testing.assert_allclose(m_p[0], m_p_root)
@@ -73,7 +75,7 @@ solvers_bracket = ['brentq', 'brenth']
 solvers_x0x1 = ['secant']
 solvers_grad = ['newton']
 solvers_hess = ['halley']
-solvers = solvers_bracket + solvers_x0x1 + solvers_grad + solvers_hess
+solvers = solvers_bracket + solvers_grad + solvers_hess  #  + solvers_x0x1
 bracket = (-5, 5)
 x0, x1 = -1, +1
 holder_solver = []
@@ -91,17 +93,30 @@ for solver in solvers:
     if solver in solvers_grad:
         stime = time()
         for i in range(nsim):
-            roots[i] = root_scalar(f=rootfun, args=(dist_sntn.beta[i], dist_sntn.alpha[i], dist_sntn.rho[i], target_p[i]), method=solver, x0=x0, fprime=drootfun).root
+            roots[i] = root_scalar(f=rootfun, args=(dist_sntn.beta[i], dist_sntn.alpha[i], dist_sntn.rho[i], target_p[i]), method=solver, x0=x0, fprime=drootfun_clip).root
+    if solver in solvers_hess:
+        stime = time()
+        for i in range(nsim):
+            roots[i] = root_scalar(f=rootfun, args=(dist_sntn.beta[i], dist_sntn.alpha[i], dist_sntn.rho[i], target_p[i]), method=solver, x0=x0, fprime=drootfun_clip, fprime2=d2rootfun).root
     dtime = time() - stime
     df_i = pd.DataFrame({'solver':solver, 'dtime':dtime, 'roots':roots})
     holder_solver.append(df_i)
 
 # Run the solvers that need 
 res_solvers = pd.concat(holder_solver).rename_axis('idx')
-res_solvers.reset_index().pivot(index='idx',columns='solver', values='roots')
 res_solvers.groupby('solver')['dtime'].max().reset_index().assign(rate=lambda x: nsim/x['dtime'])
+comp_roots = res_solvers.reset_index().pivot(index='idx',columns='solver', values='roots')
+comp_roots.corr()
+# Repeat for the root-vectorized methods
+x0_vec = np.repeat(-1, nsim)
+roots_newton = newton(func=rootfun, x0=x0_vec, fprime=drootfun_clip, args=(dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho, target_p,))
+roots_newton2 = newton(func=rootfun, x0=x0_vec, fprime=drootfun_clip, fprime2=d2rootfun, args=(dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho, target_p,))
+roots_median = res_solvers.groupby('idx')['roots'].median()
+roots_hybr = root(fun=rootfun, jac=lambda z, ub, lb, rho, p: np.diag(drootfun_clip(z, ub, lb, rho)), x0=x0_vec, args=(dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho, target_p,), method='hybr').x
+# They achieve the same results, but the newton method is blazing fast!!
+pd.DataFrame({'newton':roots_newton, 'newton2':roots_newton2, 'hybr':roots_hybr, 'med':roots_median}).corr()
 
-
+# OUTSTANDING QUESTIONS: I) GRADIENT CLIPPING, II) NETWON VS NEWTON2, III) SLOWDOWN IN EFFICIENCY FOR DIFFERENT VECTOR SIZES???
 
 
 
