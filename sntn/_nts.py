@@ -144,10 +144,27 @@ class _nts():
         return mu
 
 
-    def cdf(self, w:np.ndarray, method='bvn', **kwargs) -> np.ndarray:
-        """Returns the cumulative distribution function"""
+    def cdf(self, w: np.ndarray, method: str = 'bvn', clip: float = np.infty, **kwargs) -> np.ndarray:
+        """
+        Returns the cumulative distribution function
+        w: np.ndarray
+        
+        Inputs
+        ======
+        method: str
+            Which CDF calculation method to use; see Methods (default = 'bvn')
+        clip: float
+            For the 'fast' method, bounds the beta/alpha to between ±clip (default = 20)
+        **kwargs
+            Any other arguments to pass to the _bvn class construction
+        
+        Methods
+        =======
+        bvn: Uses one of the BVN CDF methods (see sntn._bvn._bvn)
+        fast: Uses the sntn._fast_integrals.bvn_cdf_diff method
+        """
         # Consider updates bvn with kwargs match
-        cdf_methods = ['bvn', 'quad']
+        cdf_methods = ['bvn', 'fast']
         assert method in cdf_methods, f'method must be one of {cdf_methods}'
         # Broadcast x to the same dimension of the parameters
         w = broadcast_to_k(np.atleast_1d(w), self.param_shape)
@@ -165,10 +182,15 @@ class _nts():
             pval[(cdf2 - cdf1 == 0) & (cdf2.round() == 1)] = 1
             # If Z is zero, then it's going to be zero
             pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
-            # Return to proper shape
-            pval = reverse_broadcast_from_k(pval, self.param_shape)
-            # Bound b/w [0,1]
-            pval = np.clip(pval, 0, 1)
+        if method == 'fast':
+            # beta = np.clip(self.beta, a_min=None, a_max=+clip)
+            # alpha = np.clip(self.alpha, a_min=-clip, a_max=None)
+            beta, alpha = self.beta, self.alpha
+            pval = bvn_cdf_diff(x1=m1, x2a=beta, x2b=alpha, rho=self.rho) / self.Z
+        # Return to proper shape
+        pval = reverse_broadcast_from_k(pval, self.param_shape)
+        # Bound b/w [0,1]
+        pval = np.clip(pval, 0, 1)
         return pval
             
 
@@ -228,6 +250,7 @@ class _nts():
             verbose_iter: int = 50,
             root_iter: int | None = None,
             use_approx_init: bool = True,
+            clip: float = 20,
             **kwargs
         ) -> np.ndarray:
         """
@@ -249,6 +272,8 @@ class _nts():
             For method=='root', how much roots should we solve at the same time? This is useful for an array of quantiles. Note that the final count will be between: (k*(iter//k) ,self.k). Defaults to self.k if is None
         use_approx_init: bool
             For the 'fast' method, should the 'approx' weights be initialized, or use the default from _fast_integrals? (default==True)
+        clip: float = 20
+            For the 'fast' method, how to limit +- infinity to some large nubmer (default = 20)
         **kwargs           
             Will be passed onto _rootfinder_newton (consider 'use_gradclip', 'clip_low', or 'clip_high' for convergence failures)
         
@@ -273,6 +298,9 @@ class _nts():
             # Broadcast the parameters
             target_p = np.squeeze(self.Z * p)  # If it can be flat, let it be
             target_p, beta, alpha, rho, sigma1, theta1, Zphi = np.broadcast_arrays(target_p, self.beta, self.alpha, self.rho, self.sigma1, self.theta1, self.Z)
+            # # Clip alpha and beta
+            # beta = np.clip(beta, a_min=None, a_max=+clip)
+            # alpha = np.clip(alpha, a_min=-clip, a_max=None)
             # Run the root-finder and (possibly) set the initial values
             if use_approx_init:
                 w_init = np.broadcast_to(np.squeeze(w0), shape=theta1.shape)
