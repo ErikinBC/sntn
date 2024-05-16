@@ -5,13 +5,18 @@ Fully specified SNTN distribution
 # External
 import numpy as np
 from time import time
+from warnings import warn
 from scipy.optimize import root
 from scipy.stats import truncnorm, norm
 # Internal
 from sntn._bvn import _bvn
 from sntn._solvers import conf_inf_solver
 from sntn.utilities.grad import _log_gauss_approx
-from sntn.utilities.utils import broastcast_max_shape, try2array, broadcast_to_k, reverse_broadcast_from_k, pass_kwargs_to_classes, get_valid_kwargs_cls, get_valid_kwargs_method
+from sntn._fast_integrals import _rootfinder_newton
+from sntn.utilities.utils import broastcast_max_shape, try2array, \
+        broadcast_to_k, reverse_broadcast_from_k, \
+        pass_kwargs_to_classes, get_valid_kwargs_cls, \
+        get_valid_kwargs_func, get_valid_kwargs_method
 
 
 @staticmethod
@@ -214,7 +219,14 @@ class _nts():
         return err
 
 
-    def ppf(self, p:np.ndarray, method:str='loop', tol:float=1e-3, root_chunks: int=100, verbose:bool=False, verbose_iter:int=50, **kwargs) -> np.ndarray:
+    def ppf(self, 
+            p: np.ndarray, 
+            method: str='fast', 
+            tol_cdf: float=1e-3, 
+            verbose: bool=False, 
+            verbose_iter: int=50,
+            **kwargs
+        ) -> np.ndarray:
         """
         Returns the quantile of the NTS distribution(s)
         
@@ -222,31 +234,57 @@ class _nts():
         ---------
         p:                  An array of whose last dimensions can be flattened
         method:             See below (default='loop')
-        tol:                Maximum tolerance we will allow for solution to have failed
-        root_chunks:        When method is 'root'... 
+        tol_cdf:                Maximum tolerance we will allow for solution to have failed
         verbose:            For the root_loop method, whether updates should be printed
         verbose_iter:       If verbose, after how many iterations should a status be printed?
+        **kwargs:           Will be passed onto _rootfinder_newton
         
         Methods
         -------
+        fast:               Solves all roots simultaneously using Newton's method (unstable for small Z)
         root:               Solve all roots simultaneously (fast but unstable)
         loop:               Loop over all i,j configurations (slower but more stable)
         approx:             Use the quantiles from each dist
         """
-        valid_ppf_methods = ['root', 'approx', 'loop']
+        valid_ppf_methods = ['fast', 'root', 'approx', 'loop']
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
         p = np.atleast_1d(p)
         p = broadcast_to_k(p, self.param_shape)
         w0 = self.c1*self.dist_Z1.ppf(p) + self.c2*self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
+        if method == 'fast':
+            # Solve in the m(w) space
+            kwargs_newton = get_valid_kwargs_func(_rootfinder_newton, **kwargs)
+            target_p = self.Z * p
+            # If p is a matrix, then it won't align with the shape of the flattened parameters...
+            breakpoint()
+            m_roots = _rootfinder_newton(ub=self.beta, lb=self.alpha, rho=self.rho, target_p=target_p, **kwargs_newton)
+            # Solve for w
+            w = m_roots * self.sigma1 + self.theta1
+            cdf_roots = self.cdf(w)
+            err_cdf = np.abs(cdf_roots - p)
+            # Identify any failures
+            if err_cdf.max() > tol_cdf:
+                idx_err = (err_cdf > tol_cdf).flatten()
+                warn(f'Heads ups, a total of {idx_err.sum()} roots of {len(idx_err)} need to be resolved with a slower method')
+                tmp_sntn = _nts(mu1=self.mu1[idx_err], mu2=self.mu2[idx_err], 
+                                tau21=self.tau21[idx_err], tau22=self.tau22[idx_err], 
+                                a=self.a[idx_err], b=self.b[idx_err], 
+                                c1=self.c1[idx_err], x2=self.c2[idx_err], fix_mu=self.fix_mu)
+                tmp_z = tmp_sntn.ppf(p[idx_err]).flatten()
+                w[idx_err] = tmp_z
+                tmp_err_cdf = np.abs(tmp_sntn.cdf(tmp_z) - p)
+                idx_fail = tmp_err_cdf > tol_cdf
+                if idx_fail.any():
+                    warn(f'Even with the resolve, a total of {idx_fail.sum()} of the {len(idx_fail)} problem quantiles have still failed')
         if method == 'approx':
             # Use the simple quantiles
             w = w0.copy()
         if method == 'root':
             solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
             merr = np.abs(solution.fun).max()
-            assert merr < tol, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol}'
+            assert merr < tol_cdf, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol_cdf}'
             w = solution.x.reshape(w0.shape) # Reshape
         if method == 'loop':
             # Prepare for loop
@@ -265,7 +303,7 @@ class _nts():
                     p_ij = p[i,j]
                     solution_ij = root(fun_j, w0_ij, args=(p_ij))
                     merr_ij = np.max(np.abs(solution_ij.fun))
-                    assert merr_ij < tol
+                    assert merr_ij < tol_cdf
                     w[i,j] = solution_ij.x[0]
                     if verbose:
                         ncomp = i*self.k + (j+1)

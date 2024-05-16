@@ -66,6 +66,14 @@ def get_valid_kwargs_method(obj, method_name, **kwargs):
     return filtered_kwargs
 
 
+def get_valid_kwargs_func(func, **kwargs):
+    # Get the function's signature
+    sig = signature(func)
+    valid_kwargs = set(sig.parameters.keys())
+    # Filter the input kwargs to only include valid kwargs
+    return {k: v for k, v in kwargs.items() if k in valid_kwargs}
+
+
 def pass_kwargs_to_classes(cls, *args, **kwargs):
     """Try passing keywords to class, and the class will only use those kwargs that match named arguments"""
     arg_names = set(getfullargspec(cls.__init__).args[1:])
