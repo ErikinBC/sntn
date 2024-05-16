@@ -12,12 +12,12 @@ from scipy.stats import truncnorm, norm
 from sntn._bvn import _bvn
 from sntn._solvers import conf_inf_solver
 from sntn.utilities.grad import _log_gauss_approx
-from sntn._fast_integrals import _rootfinder_newton
+from sntn._fast_integrals import _rootfinder_newton, bvn_cdf_diff
 from sntn.utilities.utils import broastcast_max_shape, try2array, \
         broadcast_to_k, reverse_broadcast_from_k, \
         pass_kwargs_to_classes, get_valid_kwargs_cls, \
-        get_valid_kwargs_func, get_valid_kwargs_method
-
+        get_valid_kwargs_func, get_valid_kwargs_method, \
+        vprint
 
 @staticmethod
 def _mus_are_equal(mu1, mu2) -> tuple:
@@ -208,8 +208,9 @@ class _nts():
             n = w.shape[0] / self.k
             assert n == int(n), 'expected n to be a whole number'
             n = int(n)
-            w = np.squeeze(w.reshape([n,self.k]))
-            pval = np.squeeze(self.cdf(w))
+            #w_r = np.squeeze(w.reshape([n, self.k]))
+            w_r = np.squeeze(w.reshape([n, *self.param_shape]))
+            pval = np.squeeze(self.cdf(w_r))
             p = np.squeeze(p.reshape(pval.shape))
             err = pval - p
         else:
@@ -221,10 +222,12 @@ class _nts():
 
     def ppf(self, 
             p: np.ndarray, 
-            method: str='fast', 
-            tol_cdf: float=1e-3, 
-            verbose: bool=False, 
-            verbose_iter: int=50,
+            method: str = 'fast', 
+            tol_cdf: float = 1e-3, 
+            verbose: bool = False, 
+            verbose_iter: int = 50,
+            root_iter: int | None = None,
+            use_approx_init: bool = True,
             **kwargs
         ) -> np.ndarray:
         """
@@ -232,12 +235,22 @@ class _nts():
         
         Arguments
         ---------
-        p:                  An array of whose last dimensions can be flattened
-        method:             See below (default='loop')
-        tol_cdf:                Maximum tolerance we will allow for solution to have failed
-        verbose:            For the root_loop method, whether updates should be printed
-        verbose_iter:       If verbose, after how many iterations should a status be printed?
-        **kwargs:           Will be passed onto _rootfinder_newton
+        p: np.ndarray
+            Percent quantile we are looking to find, w(p), so that F(w) = p
+        method: str
+            Which quantile-finding method should be used? See "Methods" below, defaults to 'fast'
+        tol_cdf: float=1e-3
+            After w(p) is found, check maximum error b/w |F(w) - p| < tol_cdf
+        verbose: bool
+            During the loop, should the iteration be printed? (default==False)
+        verbose_iter: int
+            During the loop, at which iteration should the print occur (default==50)
+        root_iter: int | None
+            For method=='root', how much roots should we solve at the same time? This is useful for an array of quantiles. Note that the final count will be between: (k*(iter//k) ,self.k). Defaults to self.k if is None
+        use_approx_init: bool
+            For the 'fast' method, should the 'approx' weights be initialized, or use the default from _fast_integrals? (default==True)
+        **kwargs           
+            Will be passed onto _rootfinder_newton (consider 'use_gradclip', 'clip_low', or 'clip_high' for convergence failures)
         
         Methods
         -------
@@ -250,20 +263,26 @@ class _nts():
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
         p = np.atleast_1d(p)
+        num_p = len(p)
         p = broadcast_to_k(p, self.param_shape)
         w0 = self.c1*self.dist_Z1.ppf(p) + self.c2*self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
         if method == 'fast':
             # Solve in the m(w) space
             kwargs_newton = get_valid_kwargs_func(_rootfinder_newton, **kwargs)
-            target_p = self.Z * p
-            # If p is a matrix, then it won't align with the shape of the flattened parameters...
-            breakpoint()
-            m_roots = _rootfinder_newton(ub=self.beta, lb=self.alpha, rho=self.rho, target_p=target_p, **kwargs_newton)
+            # Broadcast the parameters
+            target_p = np.squeeze(self.Z * p)  # If it can be flat, let it be
+            target_p, beta, alpha, rho, sigma1, theta1, Zphi = np.broadcast_arrays(target_p, self.beta, self.alpha, self.rho, self.sigma1, self.theta1, self.Z)
+            # Run the root-finder and (possibly) set the initial values
+            if use_approx_init:
+                w_init = np.broadcast_to(np.squeeze(w0), shape=theta1.shape)
+                m_init = (w_init - theta1) / sigma1
+                kwargs_newton['x0_vec'] = m_init
+            m_roots = _rootfinder_newton(ub=beta, lb=alpha, rho=rho, target_p=target_p, **kwargs_newton)
             # Solve for w
-            w = m_roots * self.sigma1 + self.theta1
-            cdf_roots = self.cdf(w)
-            err_cdf = np.abs(cdf_roots - p)
+            w = m_roots * sigma1 + theta1
+            cdf_roots = bvn_cdf_diff(x1=m_roots, x2a=beta, x2b=alpha, rho=rho) / Zphi
+            err_cdf = np.abs(cdf_roots - np.squeeze(p))
             # Identify any failures
             if err_cdf.max() > tol_cdf:
                 idx_err = (err_cdf > tol_cdf).flatten()
@@ -278,14 +297,37 @@ class _nts():
                 idx_fail = tmp_err_cdf > tol_cdf
                 if idx_fail.any():
                     warn(f'Even with the resolve, a total of {idx_fail.sum()} of the {len(idx_fail)} problem quantiles have still failed')
+            # Reshape for reverse_broadcast_from_k
+            w = w.reshape(w0.shape)
         if method == 'approx':
             # Use the simple quantiles
             w = w0.copy()
         if method == 'root':
-            solution = root(self._err_cdf_p, w0.flatten(), args=(p.flatten()))
-            merr = np.abs(solution.fun).max()
-            assert merr < tol_cdf, f'Error! Root finding had a max error {merr} which exceeded tolerance {tol_cdf}'
-            w = solution.x.reshape(w0.shape) # Reshape
+            # err_cdf_p needs to be flattened
+            w0_flat, p_flat = w0.flatten(), p.flatten()
+            # How many calculations can we get per iteration (max of root_iter)
+            if root_iter is None:
+                root_iter = self.k
+            iter_act = self.k * (root_iter // self.k)
+            n_loop = int(np.ceil(self.k * num_p / iter_act))
+            vprint(f'Calculating {iter_act} roots per iteration over {n_loop} loops', verbose)
+            # Loop over all solutions
+            kwargs_root = get_valid_kwargs_func(root, **kwargs)
+            solution = np.zeros(w0_flat.shape)
+            # breakpoint()
+            for loop in range(n_loop):
+                # Break up into batches of at most 
+                idx_low, idx_high = iter_act*loop, iter_act*(loop+1)
+                w0_loop, p_loop = w0_flat[idx_low:idx_high], p_flat[idx_low: idx_high]
+                solroot = root(self._err_cdf_p, w0_loop, args=(p_loop, ), **kwargs_root)
+                if (loop+1) == n_loop:
+                    solution[idx_low:] = solroot.x  # Last iteration may have a different shape
+                else:
+                    solution[idx_low:idx_high] = solroot.x
+                merr = np.abs(solroot.fun).max()
+                if merr > tol_cdf:
+                    warn(f'Error! Root finding had a max error {merr} which exceeded tolerance {tol_cdf} at loop iteration {loop} of {n_loop}\n\nTRY LOWERING root_iter=={self.k}')
+            w = solution.reshape(w0.shape) # Reshape
         if method == 'loop':
             # Prepare for loop
             w0, p = np.atleast_2d(w0), np.atleast_2d(p)
@@ -303,7 +345,8 @@ class _nts():
                     p_ij = p[i,j]
                     solution_ij = root(fun_j, w0_ij, args=(p_ij))
                     merr_ij = np.max(np.abs(solution_ij.fun))
-                    assert merr_ij < tol_cdf
+                    if merr_ij > tol_cdf:
+                        warn(f'Error {merr_ij:.5f} > {tol_cdf:.5f} at iteration i={i}, j={j}')
                     w[i,j] = solution_ij.x[0]
                     if verbose:
                         ncomp = i*self.k + (j+1)

@@ -3,7 +3,7 @@ Make sure SNTN works as expected
 
 python3 -m tests.test_dists_nts
 python3 -m pytest tests/test_dists_nts.py -s
-python3 -m pytest tests/test_dists_nts.py -k 'test_nts_cdf'
+python3 -m pytest tests/test_dists_nts.py -s -k 'test_nts_ppf'
 """
 
 # Internal
@@ -18,8 +18,9 @@ from parameters import seed
 from sntn.utilities.utils import try_except_breakpoint
 
 # Used for pytest
-params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),][2:]
+params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
 params_alpha = [ (0.2), (0.1), (0.05) ]
+params_ppf_method = [ 'fast', 'loop', 'root', ]
 
 def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     """Convenience wrapper for generates NTS parameters"""
@@ -33,6 +34,107 @@ def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     c1 = np.random.rand(*shape)
     c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
+  
+
+@pytest.mark.parametrize("shape", params_shape)
+@pytest.mark.parametrize("ppf_method", params_ppf_method)
+def test_nts_ppf(shape:tuple | list, ppf_method:str, ndraw:int=2000000, tol_err:float=0.01) -> None:
+    """
+    Checks that the quantile function works as expected by comparing it to the empirical quantile from sampling from the distribution (which is trivial to do)
+    """
+    # Percentiles to check
+    p_seq = np.arange(0.01, 1, 0.01)
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    x = dist.rvs(ndraw, seed)
+    # Get the empirical quantile
+    emp_q = np.quantile(x, p_seq, axis=0)
+    # Get the theoretical quantile
+    stime = time()
+    theory_q = dist.ppf(p_seq, method=ppf_method)
+    dtime = time() - stime
+    # Compare the errors
+    maerr = np.abs(emp_q - theory_q).max()
+    print(f'\nMax error: {maerr:.4f} (method = {ppf_method}), time={dtime:.3f} seconds')
+    try:
+        assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
+    except:
+        breakpoint()
+
+
+@pytest.mark.parametrize("shape", params_shape)
+def test_nts_cdf(shape:tuple, ndraw:int=20000, tol_cdf:float=0.01) -> None:
+    """Checks that:
+    i) CDF aligns with classic 1964 paper
+    ii) Empirical rvs aligns with cdf
+    """ 
+    # (i) Sanity check on 1964 query
+    mu1, tau21 = 100, 6**2
+    mu2, tau22 = 50, 3**2
+    a, b = 44, np.inf
+    w = 138
+    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
+    expected_1964 = 0.03276
+    cdf_1964 = dist_1964.cdf(w, method='bvn')[0]
+    assert np.round(cdf_1964,5) == expected_1964, F'Expected CDF to be: {expected_1964} not {cdf_1964}' 
+    
+    # (ii) Check that random parameters align with rvs
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    x = dist.rvs(1)[0,...]
+    cdf_theory = dist.cdf(x)
+    cdf_rvs = np.mean(dist.rvs(ndraw, seed) <= x, 0)
+    err_max = np.abs(cdf_theory - cdf_rvs).max()
+    assert err_max < tol_cdf, f'Maximum error {err_max} was greater than {tol_cdf}'
+    
+
+@pytest.mark.parametrize("shape", params_shape)
+def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
+    """Checks that:
+    i) CDF integrates to one
+    ii) Mean = int f(x) x dx 
+    iii) Median = inf_c : int_{lb}^c f(x) dx = 0.5
+    """ 
+    # Draw different distributions
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    # Check that numerical integration matches theory for mean
+    data = dist.rvs(10000, seed)
+    dmin = np.min(data, 0) - 1
+    dmax = np.max(data, 0) + 1
+    points = np.linspace(dmin, dmax, 25000)
+    dpoints = np.expand_dims((points[1] - points[0]).reshape(shape), 0)    
+    # The pdf should integrate to close to one
+    f = dist.pdf(points)
+    probs = f * dpoints
+    total_prob = np.sum(probs, 0)
+    assert np.all(np.abs(total_prob - 1) < tol_cdf), 'Integral should sum to 1!'
+    # Mean should match...
+    mu_int = np.sum(f * points * dpoints, 0)
+    assert np.all(np.abs(mu_int - np.mean(data, 0)) < tol_mu), 'Means do not align'
+    # Median should match...
+    idx_median = np.expand_dims(np.argmin(np.cumsum(probs, 0) <= 0.5,axis=0),0)
+    med_int = np.take_along_axis(points, idx_median, 0)
+    med_data = np.median(data, 0, keepdims=True)
+    abs_err_med = np.abs(med_int - med_data)
+    assert np.all(abs_err_med < tol_mu), 'Medians do not align'
+
+
+@pytest.mark.parametrize("shape", params_shape)
+def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
+    """Checks that the random variables align with expected mean"""
+    # Draw different distributions
+    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
+    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
+    data = dist.rvs(nsim, seed)
+    # Check that the mean of the rvs aligns with E[]
+    mu_rvs = data.mean(0)
+    mu_theory = dist.mean()
+    assert np.all(np.abs(mu_rvs - mu_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
+    # Check median
+    med_rvs = np.median(data, 0)
+    med_theory = dist.ppf(p=0.5)
+    assert np.all(np.abs(med_rvs - med_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
 
 
 @pytest.mark.parametrize("shape", params_shape)
@@ -137,105 +239,6 @@ def test_nts_conf_int(shape:tuple, alpha:float, ndraw:int=250, tol_type1:float=0
     #     tmp_df = pd.DataFrame({'param':param_name, 'x':np.squeeze(x), 'lb':ci_lb, 'ub':ci_ub, 'gt':val_gt})
     #     holder_param.append(tmp_df)
     # res_param = pd.concat(holder_param).reset_index(drop=True)
-    
-
-@pytest.mark.parametrize("shape", params_shape)
-def test_nts_ppf(shape:tuple | list, ndraw:int=1000000, tol_err:float=2e-2) -> None:
-    """
-    Checks that the quantile function works as expected:
-    i) Do empirical quantiles of rvs align with ppf?
-    """
-    # Percentiles to check
-    p_seq = np.arange(0.01, 1, 0.01)
-    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
-    x = dist.rvs(ndraw, seed)
-    # Get the empirical quantile
-    emp_q = np.quantile(x, p_seq, axis=0)
-    # Get the theoretical quantile
-    theory_q = dist.ppf(p_seq, verbose=True, verbose_iter=50, method='fast')
-    # theory_q = dist.ppf(p_seq, verbose=True, verbose_iter=50, method='loop')
-    # theory_q = dist.ppf(p_seq, verbose=True, verbose_iter=50, method='root')
-    # Compare the errors
-    maerr = np.abs(emp_q - theory_q).max()
-    assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
-
-
-@pytest.mark.parametrize("shape", params_shape)
-def test_nts_cdf(shape:tuple, ndraw:int=20000, tol_cdf:float=0.01) -> None:
-    """Checks that:
-    i) CDF aligns with classic 1964 paper
-    ii) Empirical rvs aligns with cdf
-    """ 
-    # (i) Sanity check on 1964 query
-    mu1, tau21 = 100, 6**2
-    mu2, tau22 = 50, 3**2
-    a, b = 44, np.inf
-    w = 138
-    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
-    expected_1964 = 0.03276
-    cdf_1964 = dist_1964.cdf(w, method='bvn')[0]
-    assert np.round(cdf_1964,5) == expected_1964, F'Expected CDF to be: {expected_1964} not {cdf_1964}' 
-    
-    # (ii) Check that random parameters align with rvs
-    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
-    x = dist.rvs(1)[0,...]
-    cdf_theory = dist.cdf(x)
-    cdf_rvs = np.mean(dist.rvs(ndraw, seed) <= x, 0)
-    err_max = np.abs(cdf_theory - cdf_rvs).max()
-    assert err_max < tol_cdf, f'Maximum error {err_max} was greater than {tol_cdf}'
-    
-
-@pytest.mark.parametrize("shape", params_shape)
-def test_nts_pdf(shape:tuple, tol_cdf:float=0.005, tol_mu:float=0.1) -> None:
-    """Checks that:
-    i) CDF integrates to one
-    ii) Mean = int f(x) x dx 
-    iii) Median = inf_c : int_{lb}^c f(x) dx = 0.5
-    """ 
-    # Draw different distributions
-    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
-    # Check that numerical integration matches theory for mean
-    data = dist.rvs(10000, seed)
-    dmin = np.min(data, 0) - 1
-    dmax = np.max(data, 0) + 1
-    points = np.linspace(dmin, dmax, 25000)
-    dpoints = np.expand_dims((points[1] - points[0]).reshape(shape), 0)    
-    # The pdf should integrate to close to one
-    f = dist.pdf(points)
-    probs = f * dpoints
-    total_prob = np.sum(probs, 0)
-    assert np.all(np.abs(total_prob - 1) < tol_cdf), 'Integral should sum to 1!'
-    # Mean should match...
-    mu_int = np.sum(f * points * dpoints, 0)
-    assert np.all(np.abs(mu_int - np.mean(data, 0)) < tol_mu), 'Means do not align'
-    # Median should match...
-    idx_median = np.expand_dims(np.argmin(np.cumsum(probs, 0) <= 0.5,axis=0),0)
-    med_int = np.take_along_axis(points, idx_median, 0)
-    med_data = np.median(data, 0, keepdims=True)
-    abs_err_med = np.abs(med_int - med_data)
-    assert np.all(abs_err_med < tol_mu), 'Medians do not align'
-
-
-@pytest.mark.parametrize("shape", params_shape)
-def test_nts_rvs(shape:tuple, nsim:int=10000, tol:float=1e-1) -> None:
-    """Checks that the random variables align with expected mean"""
-    # Draw different distributions
-    mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(shape, seed)
-    dist = nts(mu1, tau21, mu2, tau22, a, b, c1, c2)
-    data = dist.rvs(nsim, seed)
-    # Check that the mean of the rvs aligns with E[]
-    mu_rvs = data.mean(0)
-    mu_theory = dist.mean()
-    assert np.all(np.abs(mu_rvs - mu_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
-    # Check median
-    med_rvs = np.median(data, 0)
-    med_theory = dist.ppf(p=0.5)
-    assert np.all(np.abs(med_rvs - med_theory) < tol),  f'Expected the actual/theoretical mean to be within {tol} of each other'
-
-
 
 if __name__ == "__main__":
     shape_test = params_shape[2]
@@ -251,11 +254,11 @@ if __name__ == "__main__":
     test_nts_pdf(shape=shape_test)
     
     print('--- test_nts_ppf ---')
-    test_nts_ppf(shape=shape_test)
+    test_nts_ppf(shape=shape_test, ppf_method='fast')
 
     print('--- test_nts_conf_int ---')
     # Try 1000 random parameterizations with a single draw (contrasted to 250 draws for a handful of parameters)
     # Try Owen's method to make sure that scipy backup works as expected
-    test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
+    # test_nts_conf_int(shape=(20,10,5), alpha=alpha_test, ndraw=1, tol_xmu=None, verbose_iter=1, n_chunks=1, cdf_approach='owen')
 
     print('~~~ The test_dists_nts.py script worked successfully ~~~')

@@ -5,12 +5,13 @@ python3 -m simulations.6_ppf_runtime
 """
 
 # External modules
+import unittest
 import numpy as np
 import pandas as pd
 from time import time
 from timeit import timeit
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import chi2, norm, uniform, expon
+from scipy.stats import norm, uniform, expon
 from scipy.optimize import root_scalar, root, newton
 # Internal modules
 from sntn import dists
@@ -19,6 +20,9 @@ from sntn._fast_integrals import Phi_diff, bvn_cdf_diff, dbvn_cdf_diff, d2bvn_cd
 
 # Set seed
 seed = 1234
+
+# Set up for assertion checks
+case = unittest.TestCase()
 
 # Data generation function
 def _generate_random_sntn_params(size, seed):
@@ -31,21 +35,26 @@ def _generate_random_sntn_params(size, seed):
     return mu1, mu2, tau21, tau22, a, b
 
 
-mu1 = -0.2757737286563052
-mu2 = -2.6295222258047604
-tau21 = 0.10219183113096487
-tau22 = 1.414634163492961
-a = 1.3885646465047028
-b = 3.582846969757054
-alpha = 0.7314274410841171
+########################
+# --- (0) RUNTIME! --- #
 
-dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
-quant_p = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha)))
-dist_sntn.cdf(quant_p)
-
-quant_m_alt = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
-                                 target_p=dist_sntn.Z*alpha)
-quant_p_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
+# Check that we can clock >10k roots per second
+nvecs = [10000, 25000, 50000, 100000, 500000, 1000000]
+holder = []
+for nvec in nvecs:
+    print(f'Vector size = {nvec}')
+    mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nvec, seed)
+    dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
+    alphas = uniform.rvs(size=nvec, random_state=seed)
+    stime = time()
+    quant = np.squeeze(dist_sntn.ppf(p=alphas, method='fast'))
+    dtime = time() - stime
+    np.testing.assert_allclose(dist_sntn.cdf(quant), alphas)
+    holder.append([nvec, dtime])
+# Merge and show
+res_runtime = pd.DataFrame(holder, columns = ['n', 'time']).assign(rate=lambda x: (x['n']/x['time']).astype(int))
+print('Quantiles per second using "fast" method')
+print(res_runtime)
 
 
 #################################
@@ -118,25 +127,25 @@ alpha = 0.13
 # Check that default PPF works as expected
 mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nsim, seed)
 dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
-quant_p = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha)))
+quant_loop = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha, method='loop')))
 quant_m_alt = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
                                  target_p=dist_sntn.Z*alpha)
-quant_p_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
-df_p_alt = pd.DataFrame({'q':quant_p, 'q2':quant_p_alt})
+quant_loop_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
+df_p_alt = pd.DataFrame({'q':quant_loop, 'q2':quant_loop_alt})
 idx_worst = df_p_alt.diff(axis=1)['q2'].abs().sort_values().tail(20).index
 # df_p_alt.loc[idx_worst]
-np.testing.assert_allclose(quant_p, quant_p_alt)
-p_quant = np.atleast_1d(np.squeeze(dist_sntn.cdf(quant_p)))
-print(f'Calculated quantile={quant_p[0]:.3f} for p-value ({alpha:.2f}), and cdf={p_quant[0]:.3f}')
+np.testing.assert_allclose(quant_loop, quant_loop_alt)
+p_quant = np.atleast_1d(np.squeeze(dist_sntn.cdf(quant_loop)))
+print(f'Calculated quantile={quant_loop[0]:.3f} for p-value ({alpha:.2f}), and cdf={p_quant[0]:.3f}')
 
 # Check it can be recovered with bvn_cdf_diff
-m_p = (quant_p - dist_sntn.theta1) / dist_sntn.sigma1
+m_p = (quant_loop - dist_sntn.theta1) / dist_sntn.sigma1
 target_p = dist_sntn.Z * alpha
 np.testing.assert_allclose(bvn_cdf_diff(m_p, dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho) , target_p)
 
 # -- Quick and dirty root finding -- #
 # Get the baseline time
-tym_ppf_bl = timeit("dist_sntn.ppf(p=alpha)", globals=globals(), number=1)
+tym_ppf_bl = timeit("dist_sntn.ppf(p=alpha, method='loop')", globals=globals(), number=1)
 nsim / tym_ppf_bl
 
 # Check that rootfun finds the first quantile
@@ -151,7 +160,7 @@ d2rootfun = lambda z, ub, lb, rho, p: d2bvn_cdf_diff(z, ub, lb, rho)
 m_p_root = root_scalar(f=rootfun, args=(dist_sntn.beta[0], dist_sntn.alpha[0], dist_sntn.rho[0], target_p[0]), method='brentq', bracket=(-5, 5)).root
 np.testing.assert_allclose(m_p[0], m_p_root)
 quant_root = m_p_root*dist_sntn.sigma1[0] + dist_sntn.theta1[0]
-np.testing.assert_allclose(quant_root, quant_p[0])
+np.testing.assert_allclose(quant_root, quant_loop[0])
 
 # Run the solvers that only need a bound
 solvers_bracket = ['brentq', 'brenth']
@@ -199,7 +208,7 @@ roots_hybr = root(fun=rootfun, jac=lambda z, ub, lb, rho, p: np.diag(drootfun_cl
 # They achieve the same results, but the newton method is blazing fast!!
 print(pd.DataFrame({'newton':roots_newton, 'newton2':roots_newton2, 'hybr':roots_hybr, 'med':roots_median}).corr())
 # After transformation should be the same...
-np.testing.assert_allclose(quant_p, roots_newton*dist_sntn.sigma1 + dist_sntn.theta1)
+np.testing.assert_allclose(quant_loop, roots_newton*dist_sntn.sigma1 + dist_sntn.theta1)
 
 
 ###################################
@@ -245,3 +254,63 @@ for n in vec_size:
     holder.append([nt, n])
 res_nvec = pd.DataFrame(holder, columns = ['time', 'size'])
 res_nvec.assign(rate=lambda x: (x['size']*tnum / x['time']).astype(int))
+
+
+#######################################
+# --- (5B) FAILURE CASE: USE INIT --- #
+
+# Quantiles for everything!
+p_seq = np.arange(0.01, 1, 0.01)
+
+mu1=-0.6117564136500754
+tau21=1.6810944055128347
+mu2=-0.7612069008951028
+tau22=2.791073594843329
+a=-1.5449347600694359
+b=-0.5311783287768251
+c1=0.053362545117080384
+c2=0.9466374548829196
+
+# This shoudl all work
+dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b, c1=c1, c2=c2)
+beta, alpha, rho, theta1, sigma1, Zphi = dist_sntn.beta, dist_sntn.alpha, dist_sntn.rho, dist_sntn.theta1, dist_sntn.sigma1, dist_sntn.Z
+quant_loop = np.squeeze(dist_sntn.ppf(p_seq, method='loop'))
+cdf_loop = dist_sntn.cdf(quant_loop)
+np.testing.assert_allclose(np.squeeze(cdf_loop), p_seq)
+cdf_diff = bvn_cdf_diff(x1=(quant_loop-theta1)/sigma1, x2a=beta, x2b=alpha, rho=rho) / Zphi
+np.testing.assert_allclose(np.squeeze(cdf_diff), p_seq)
+quant_fast = dist_sntn.ppf(p_seq, method='fast')
+cdf_fast = dist_sntn.cdf(quant_fast)
+np.testing.assert_allclose(np.squeeze(cdf_fast), p_seq)
+# But if we turn off smart initialization, it should break
+case.assertRaises(RuntimeError, dist_sntn.ppf, p_seq, method='fast', use_approx_init=False)
+
+
+####################################
+# --- (5A) FAILURE CASE: Z ≈ 0 --- #
+
+# Example SNTN parameters
+mu1 = -0.2757737286563052
+mu2 = -2.6295222258047604
+tau21 = 0.10219183113096487
+tau22 = 1.414634163492961
+a = 1.3885646465047028
+b = 3.582846969757054
+alpha = 0.7314274410841171
+
+# Work with vinalla approach
+dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
+quant_loop = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha, method='loop')))
+print(f'Using the loop method, CDF={dist_sntn.cdf(quant_loop)[0]:.4f} is close to alpha={alpha:.4f}')
+print(f'But Z={dist_sntn.Z[0]:.4f} is small as beta={dist_sntn.beta[0]:.1f} & alpha={dist_sntn.alpha[0]:.1f}')
+
+try:
+    attempt1 = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
+                                    target_p=dist_sntn.Z*alpha, use_hess=True, use_gradclip=False)
+except:
+    print('Failures with Hessian & w/o gradient clipping')
+try:
+    attempt2 = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
+                                    target_p=dist_sntn.Z*alpha, use_hess=False, use_gradclip=False)
+except:
+    print('Failures w/o Hessian & w/o gradient clipping')
