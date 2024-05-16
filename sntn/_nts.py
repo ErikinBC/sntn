@@ -144,7 +144,11 @@ class _nts():
         return mu
 
 
-    def cdf(self, w: np.ndarray, method: str = 'bvn', clip: float = np.infty, **kwargs) -> np.ndarray:
+    def cdf(self, w: np.ndarray, 
+            method: str = 'bvn', 
+            clip: float = 30, 
+            **kwargs
+        ) -> np.ndarray:
         """
         Returns the cumulative distribution function
         w: np.ndarray
@@ -154,7 +158,7 @@ class _nts():
         method: str
             Which CDF calculation method to use; see Methods (default = 'bvn')
         clip: float
-            For the 'fast' method, bounds the beta/alpha to between ±clip (default = 20)
+            For the 'fast' method, bounds the beta/alpha to between ±clip (default = 30)
         **kwargs
             Any other arguments to pass to the _bvn class construction
         
@@ -183,9 +187,8 @@ class _nts():
             # If Z is zero, then it's going to be zero
             pval[(cdf2 == 0) & (cdf1 == 0) & (self.Z == 0)] = 0
         if method == 'fast':
-            # beta = np.clip(self.beta, a_min=None, a_max=+clip)
-            # alpha = np.clip(self.alpha, a_min=-clip, a_max=None)
-            beta, alpha = self.beta, self.alpha
+            beta = np.clip(self.beta, a_min=None, a_max=+clip)
+            alpha = np.clip(self.alpha, a_min=-clip, a_max=None)
             pval = bvn_cdf_diff(x1=m1, x2a=beta, x2b=alpha, rho=self.rho) / self.Z
         # Return to proper shape
         pval = reverse_broadcast_from_k(pval, self.param_shape)
@@ -250,7 +253,7 @@ class _nts():
             verbose_iter: int = 50,
             root_iter: int | None = None,
             use_approx_init: bool = True,
-            clip: float = 20,
+            clip: float = 30,
             **kwargs
         ) -> np.ndarray:
         """
@@ -272,8 +275,8 @@ class _nts():
             For method=='root', how much roots should we solve at the same time? This is useful for an array of quantiles. Note that the final count will be between: (k*(iter//k) ,self.k). Defaults to self.k if is None
         use_approx_init: bool
             For the 'fast' method, should the 'approx' weights be initialized, or use the default from _fast_integrals? (default==True)
-        clip: float = 20
-            For the 'fast' method, how to limit +- infinity to some large nubmer (default = 20)
+        clip: float
+            For the 'fast' method, how to limit +- infinity to some large nubmer (default = 30)
         **kwargs           
             Will be passed onto _rootfinder_newton (consider 'use_gradclip', 'clip_low', or 'clip_high' for convergence failures)
         
@@ -298,9 +301,9 @@ class _nts():
             # Broadcast the parameters
             target_p = np.squeeze(self.Z * p)  # If it can be flat, let it be
             target_p, beta, alpha, rho, sigma1, theta1, Zphi = np.broadcast_arrays(target_p, self.beta, self.alpha, self.rho, self.sigma1, self.theta1, self.Z)
-            # # Clip alpha and beta
-            # beta = np.clip(beta, a_min=None, a_max=+clip)
-            # alpha = np.clip(alpha, a_min=-clip, a_max=None)
+            # Clip alpha and beta
+            beta = np.clip(beta, a_min=None, a_max=+clip)
+            alpha = np.clip(alpha, a_min=-clip, a_max=None)
             # Run the root-finder and (possibly) set the initial values
             if use_approx_init:
                 w_init = np.broadcast_to(np.squeeze(w0), shape=theta1.shape)

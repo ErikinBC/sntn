@@ -49,8 +49,8 @@ def bvn_cdf_diff(x1: type_farray, x2a: type_farray, x2b: type_farray, rho: type_
     den2a = (x2a/x1-rho) / rootrho
     den2b = (x2b/x1-rho) / rootrho
     term1_a = Phi_diff(x2a, x2b)
-    #term1_b = np.array(x1 / x2a < 0).astype(int) - np.array(x1 / x2b < 0).astype(int)
-    term1_b = (np.sign(x1) == -1).astype(int) - np.array(x1 / x2b < 0).astype(int)
+    term1_b = np.array(x1 / x2a < 0).astype(int) - np.array(x1 / x2b < 0).astype(int)
+    # term1_b = (np.sign(x1) == -1).astype(int) - np.array(x1 / x2b < 0).astype(int)
     term2_a = sc.owens_t(x2a, den1a) - sc.owens_t(x2b, den1b)
     term2_b = sc.owens_t(x1, den2a) - sc.owens_t(x1, den2b)
     pval = 0.5*(term1_a - term1_b) - (term2_a + term2_b)

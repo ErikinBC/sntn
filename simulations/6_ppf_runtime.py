@@ -35,44 +35,49 @@ def _generate_random_sntn_params(size, seed):
     return mu1, mu2, tau21, tau22, a, b
 
 
-# # Classic parameters
-# mu1, tau21 = 100, 6**2
-# mu2, tau22 = 50, 3**2
-# a, b = 44, np.inf
-# w = 138
-# dist_1964 = dists.nts(mu1, tau21, mu2, tau22, a, b)
-# p_seq = np.arange(0.05, 1, 0.05)
-# # Generate the naive quantiles
-# quant_approx = np.squeeze(dist_1964.ppf(p_seq, method='approx'))
-# quant_loop = np.squeeze(dist_1964.ppf(p_seq, method='loop'))
-# quant_root = np.squeeze(dist_1964.ppf(p_seq, method='root'))
-# quant_fast = np.squeeze(dist_1964.ppf(p_seq, method='fast'))
-# cdf_loop = np.squeeze(dist_1964.cdf(quant_loop, method='bvn'))
-# cdf_fast = np.squeeze(dist_1964.cdf(quant_fast, method='fast'))
-# np.testing.assert_allclose(cdf_loop, p_seq)
-# np.testing.assert_allclose(cdf_fast, p_seq)
-
+# Classic parameters
+mu1, tau21 = 100, 6**2
+mu2, tau22 = 50, 3**2
+a, b = 44, np.inf
+w = 138
+dist_1964 = dists.nts(mu1, tau21, mu2, tau22, a, b)
+p_seq = np.arange(0.05, 1, 0.05)
+# Generate the naive quantiles
+quant_approx = np.squeeze(dist_1964.ppf(p_seq, method='approx'))
+quant_loop = np.squeeze(dist_1964.ppf(p_seq, method='loop'))
+quant_root = np.squeeze(dist_1964.ppf(p_seq, method='root'))
+quant_fast = np.squeeze(dist_1964.ppf(p_seq, method='fast'))
+np.testing.assert_allclose(quant_loop, quant_root)
+np.testing.assert_allclose(quant_loop, quant_fast)
+# Ensure the CDF aligns
+cdf_loop = np.squeeze(dist_1964.cdf(quant_loop, method='bvn'))
+cdf_fast = np.squeeze(dist_1964.cdf(quant_fast, method='fast'))
+np.testing.assert_allclose(cdf_loop, p_seq)
+np.testing.assert_allclose(cdf_fast, p_seq)
 
 
 ########################
 # --- (0) RUNTIME! --- #
 
 # Check that we can clock >10k roots per second
+pct_infty = 0.05
 nvecs = [10000, 25000, 50000, 100000, 500000, 1000000]
 holder = []
 for nvec in nvecs:
     print(f'Vector size = {nvec}')
     # break
     mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nvec, seed)
+    # Through in some infinities
+    a = np.where(uniform.rvs(size=nvec, random_state=seed) < pct_infty, -np.infty, a)
+    b = np.where(uniform.rvs(size=nvec, random_state=seed+1) < pct_infty, +np.infty, b)
     dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
     alphas = uniform.rvs(size=nvec, random_state=seed)
     stime = time()
-    quant = np.squeeze(dist_sntn.ppf(p=alphas, method='fast', clip=np.infty))
+    quant = np.squeeze(dist_sntn.ppf(p=alphas, method='fast'))
     dtime = time() - stime
     failed_quants = np.isnan(quant)
     print(f'Number of failed quantiles = {failed_quants.sum()}')
-    # print(np.where()[0])
-    # np.testing.assert_allclose(dist_sntn.cdf(quant), alphas)
+    np.testing.assert_allclose(dist_sntn.cdf(quant), alphas)
     holder.append([nvec, dtime])
 # Merge and show
 res_runtime = pd.DataFrame(holder, columns = ['n', 'time']).assign(rate=lambda x: (x['n']/x['time']).astype(int))
