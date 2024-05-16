@@ -177,9 +177,11 @@ def _rootfinder_newton(
           target_p: type_farray,
           x0_vec: type_farray = -1.0, 
           use_hess: bool = True,
+          use_gradclip: bool = False,
           clip_low: float = 1e-1, 
           clip_high: float = 5,
-          tol: float=1e-8
+          tol: float=1e-8,
+          ret_rootfun: bool=False
         ) -> np.ndarray:
     """
     Wrapper to support finding the roots of quantile for the SNTN distribution:
@@ -209,7 +211,9 @@ def _rootfinder_newton(
     """
     # Set up the functions
     _rootfun = lambda z, ub, lb, rho, p: bvn_cdf_diff(z, ub, lb, rho) - p
-    _drootfun = lambda z, ub, lb, rho, _: _grad_clip(dbvn_cdf_diff(z, ub, lb, rho), clip_low, clip_high)
+    _drootfun = lambda z, ub, lb, rho, _: dbvn_cdf_diff(z, ub, lb, rho)
+    if use_gradclip:
+        _drootfun = lambda z, ub, lb, rho, _: _grad_clip(dbvn_cdf_diff(z, ub, lb, rho), clip_low, clip_high)
     _d2rootfun = lambda z, ub, lb, rho, _: d2bvn_cdf_diff(z, ub, lb, rho)
     # Make sure values are broadcasted
     x0_vec, ub, lb, rho, target_p = np.broadcast_arrays(x0_vec, ub, lb, rho, target_p)
@@ -218,7 +222,11 @@ def _rootfinder_newton(
     if use_hess:
        di_newton['fprime2'] = _d2rootfun
     roots = newton(**di_newton)
-    mx_err = np.abs(_rootfun(roots, ub, lb, rho, target_p)).max()
+    y = _rootfun(roots, ub, lb, rho, target_p)
+    mx_err = np.abs(y).max()
     if mx_err > tol:
          warn(f'One or more roots did non convergence to within {tol} = {mx_err}')
-    return roots
+    if ret_rootfun:
+        return roots, y
+    else:
+         return roots

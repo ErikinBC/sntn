@@ -31,6 +31,23 @@ def _generate_random_sntn_params(size, seed):
     return mu1, mu2, tau21, tau22, a, b
 
 
+mu1 = -0.2757737286563052
+mu2 = -2.6295222258047604
+tau21 = 0.10219183113096487
+tau22 = 1.414634163492961
+a = 1.3885646465047028
+b = 3.582846969757054
+alpha = 0.7314274410841171
+
+dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
+quant_p = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha)))
+dist_sntn.cdf(quant_p)
+
+quant_m_alt = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
+                                 target_p=dist_sntn.Z*alpha)
+quant_p_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
+
+
 #################################
 # --- (1) DIFFERENCE IN PHI --- #
 
@@ -103,12 +120,12 @@ mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nsim, seed)
 dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
 quant_p = np.atleast_1d(np.squeeze(dist_sntn.ppf(p=alpha)))
 quant_m_alt = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
-                                 target_p=dist_sntn.Z*alpha, clip_low=0.1, clip_high=2.0)
+                                 target_p=dist_sntn.Z*alpha)
 quant_p_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
 df_p_alt = pd.DataFrame({'q':quant_p, 'q2':quant_p_alt})
 idx_worst = df_p_alt.diff(axis=1)['q2'].abs().sort_values().tail(20).index
-#  print(df_p_alt.loc[idx_worst])
-np.testing.assert_allclose(quant_p, quant_p_alt, rtol=1e-6, atol=1e-6)
+# df_p_alt.loc[idx_worst]
+np.testing.assert_allclose(quant_p, quant_p_alt)
 p_quant = np.atleast_1d(np.squeeze(dist_sntn.cdf(quant_p)))
 print(f'Calculated quantile={quant_p[0]:.3f} for p-value ({alpha:.2f}), and cdf={p_quant[0]:.3f}')
 
@@ -188,14 +205,43 @@ np.testing.assert_allclose(quant_p, roots_newton*dist_sntn.sigma1 + dist_sntn.th
 ###################################
 # --- (4) NEWTON OPTIMZIATION --- #
 
-# OUTSTANDING QUESTIONS: I) GRADIENT CLIPPING II) NETWON VS NEWTON2, III) SLOWDOWN IN EFFICIENCY FOR DIFFERENT VECTOR SIZES???
-# _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho, target_p=target_p)
+# Set some quantile target
+alpha = 0.189
+
+# (1) GRADIENT CLIPPING IS NOT NEEDED WHEN THE HESSIAN IS IN PLAY! OTHERWISE, USE THE DEFAULT 0.1/5.0
+nsim = 100000
+tol = 1e-8
 
 mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nsim, seed)
 dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
 
-# quant_m_alt = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
-#                                  target_p=dist_sntn.Z*alpha, clip_low=0.1, clip_high=2.0)
-# quant_p_alt = quant_m_alt*dist_sntn.sigma1 + dist_sntn.theta1
+lbs = [0.0001, 0.001, 0.01, 0.1, 1]
+ubs = [1, 2, 4, 8, 16]
 
+holder = []
+for lb in lbs:
+    for ub in ubs:
+        print(f'lb={lb}, ub={ub}')
+        stime = time()
+        roots, yval = _rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho,
+                                 target_p=dist_sntn.Z*alpha, clip_low=lb, clip_high=ub, ret_rootfun=True)
+        dtime = time() - stime
+        n_viol = (np.abs(yval) > tol).sum()
+        holder.append([lb, ub, n_viol, dtime])
+res_clipping = pd.DataFrame(holder, columns=['lb', 'ub', 'n_viol', 'dtime'])
+res_clipping.sort_values('dtime').sort_values('dtime').reset_index(drop=True)
 
+# (2) DOES RUNTIME SCALE WITH SIZE???
+tnum = 25
+vec_size = [50, 250, 1000, 2500, 5000, 10000]
+holder = []
+for n in vec_size:
+    print(f'n = {n}')
+    mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(n, seed)
+    dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
+    alphas = uniform.rvs(size=n, random_state=seed)
+    targets = dist_sntn.Z*alphas
+    nt = timeit("_rootfinder_newton(ub=dist_sntn.beta, lb=dist_sntn.alpha, rho=dist_sntn.rho, target_p=targets)", globals=globals(), number=tnum)
+    holder.append([nt, n])
+res_nvec = pd.DataFrame(holder, columns = ['time', 'size'])
+res_nvec.assign(rate=lambda x: (x['size']*tnum / x['time']).astype(int))
