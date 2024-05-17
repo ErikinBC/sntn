@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from time import time
-from scipy.stats import binom
+from scipy.stats import binom, uniform
 # External
 from sntn.dists import nts
 from parameters import seed
@@ -35,6 +35,61 @@ def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
   
+
+def test_1964():
+    """
+    Checks that answer aligns with classic 1964 paper:
+    Query 2: The Sum of Values from a Normal and a Truncated Normal Distribution (Continued)
+    https://www.jstor.org/stable/1266101?seq=1
+    """
+    # Classic parameters
+    mu1, tau21 = 100, 6**2
+    mu2, tau22 = 50, 3**2
+    a, b = 44, np.inf
+    w = 138
+    dist_1964 = nts(mu1, tau21, mu2, tau22, a, b)
+    p_seq = np.arange(0.05, 1, 0.05)
+    # Generate the naive quantiles
+    quant_loop = np.squeeze(dist_1964.ppf(p_seq, method='loop'))
+    quant_root = np.squeeze(dist_1964.ppf(p_seq, method='root'))
+    quant_fast = np.squeeze(dist_1964.ppf(p_seq, method='fast'))
+    np.testing.assert_allclose(quant_loop, quant_root)
+    np.testing.assert_allclose(quant_loop, quant_fast)
+    # Ensure the CDF aligns
+    cdf_loop = np.squeeze(dist_1964.cdf(quant_loop, method='bvn'))
+    cdf_fast = np.squeeze(dist_1964.cdf(quant_fast, method='fast'))
+    np.testing.assert_allclose(cdf_loop, p_seq)
+    np.testing.assert_allclose(cdf_fast, p_seq)
+
+
+def test_runtime():
+    """
+    # Check that we can clock >10k roots per second w/ infinity in the alpha/beta limits
+    """    
+    pct_infty = 0.05
+    nvecs = [10000, 25000, 50000, 100000, ]
+    holder = []
+    for nvec in nvecs:
+        print(f'Vector size = {nvec}')
+        # break
+        mu1, tau21, mu2, tau22, a, b, c1, c2 = gen_params(((nvec,)), seed=seed)
+        # Through in some infinities
+        a = np.where(uniform.rvs(size=nvec, random_state=seed) < pct_infty, -np.infty, a)
+        b = np.where(uniform.rvs(size=nvec, random_state=seed+1) < pct_infty, +np.infty, b)
+        dist_sntn = nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b, c1=c1, c2=c2)
+        alphas = uniform.rvs(size=nvec, random_state=seed)
+        stime = time()
+        quant = np.squeeze(dist_sntn.ppf(p=alphas, method='fast'))
+        dtime = time() - stime
+        failed_quants = np.isnan(quant)
+        print(f'Number of failed quantiles = {failed_quants.sum()}')
+        np.testing.assert_allclose(dist_sntn.cdf(quant), alphas)
+        holder.append([nvec, dtime])
+    # Merge and show
+    res_runtime = pd.DataFrame(holder, columns = ['n', 'time']).assign(rate=lambda x: (x['n']/x['time']).astype(int))
+    print('Quantiles per second using "fast" method')
+    print(res_runtime)
+
 
 @pytest.mark.parametrize("shape", params_shape)
 @pytest.mark.parametrize("ppf_method", params_ppf_method)
