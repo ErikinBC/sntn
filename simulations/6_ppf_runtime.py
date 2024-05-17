@@ -35,28 +35,6 @@ def _generate_random_sntn_params(size, seed):
     return mu1, mu2, tau21, tau22, a, b
 
 
-########################
-# --- (0) RUNTIME! --- #
-
-# Check that we can clock >10k roots per second
-nvecs = [10000, 25000, 50000, 100000, 500000, 1000000]
-holder = []
-for nvec in nvecs:
-    print(f'Vector size = {nvec}')
-    mu1, mu2, tau21, tau22, a, b = _generate_random_sntn_params(nvec, seed)
-    dist_sntn = dists.nts(mu1=mu1, tau21=tau21, mu2=mu2, tau22=tau22, a=a, b=b)
-    alphas = uniform.rvs(size=nvec, random_state=seed)
-    stime = time()
-    quant = np.squeeze(dist_sntn.ppf(p=alphas, method='fast'))
-    dtime = time() - stime
-    np.testing.assert_allclose(dist_sntn.cdf(quant), alphas)
-    holder.append([nvec, dtime])
-# Merge and show
-res_runtime = pd.DataFrame(holder, columns = ['n', 'time']).assign(rate=lambda x: (x['n']/x['time']).astype(int))
-print('Quantiles per second using "fast" method')
-print(res_runtime)
-
-
 #################################
 # --- (1) DIFFERENCE IN PHI --- #
 
