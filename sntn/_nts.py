@@ -195,7 +195,7 @@ class _nts():
         return pval
             
 
-    def pdf(self, x:np.ndarray, **kwargs) -> np.ndarray:
+    def pdf(self, x:np.ndarray) -> np.ndarray:
         """Calculates the marginal density of the NTS distribution at some point x"""
         x = try2array(x)
         x = broadcast_to_k(x, self.param_shape)
@@ -254,7 +254,7 @@ class _nts():
             clip: float = 30,
             calc_rvs_init: bool = True,
             seed: int = 1234,
-            n_samp: int = 100,
+            n_samp: int = 1000,
             **kwargs
         ) -> np.ndarray:
         """
@@ -278,7 +278,7 @@ class _nts():
             Should RVS be used to calculate an initial guestimate?
         seed: int = 1234
             If RVS is used, what seed should be used?
-        n_samp: int = 100
+        n_samp: int = 1000
             How many samples are needed? Will be max(n_samp, len(p))
         use_approx_init: bool
             For the 'fast' method, should the 'approx' weights be initialized, or use the default from _fast_integrals? (default==True)
@@ -292,12 +292,14 @@ class _nts():
         fast:               Solves all roots simultaneously using Newton's method (unstable for small Z)
         root:               Solve all roots simultaneously (fast but unstable)
         loop:               Loop over all i,j configurations (slower but more stable)
-        approx:             Use the quantiles from each dist
+        approx:             Use the quantiles from each dist (i.e. c1*norm.ppf(alpha) + c2*tnorm(alpha)
+        rvs:                Use simulated data
         """
-        valid_ppf_methods = ['fast', 'root', 'approx', 'loop']
+        valid_ppf_methods = ['fast', 'root', 'approx', 'loop', 'rvs']
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
         orig_p = np.atleast_1d(p)
+        assert (len(orig_p.shape) == 1) | (orig_p.shape == self.param_shape), f'currently the ppf method only supports broadcasting an array of percentiles, or matching the original parameter shape: {self.param_shape}. Your shape = {orig_p.shape}'
         num_p = len(orig_p)
         p = broadcast_to_k(orig_p, self.param_shape)
         if use_approx_init and method == 'fast':  # Override the RVS
@@ -328,22 +330,28 @@ class _nts():
             # Solve for w
             w = m_roots * sigma1 + theta1
             cdf_roots = bvn_cdf_diff(x1=m_roots, x2a=beta, x2b=alpha, rho=rho) / Zphi
+            cdf_roots = np.clip(cdf_roots, 0, 1)
             err_cdf = np.abs(cdf_roots - np.squeeze(p))
             # Identify any failures
             if err_cdf.max() > tol_cdf:
-                idx_err = (err_cdf > tol_cdf).flatten()
-                warn(f'Heads ups, a total of {idx_err.sum()} roots of {len(idx_err)} need to be resolved with a slower method')
-                tmp_sntn = _nts(mu1=self.mu1[idx_err], mu2=self.mu2[idx_err], 
-                                tau21=self.tau21[idx_err], tau22=self.tau22[idx_err], 
-                                a=self.a[idx_err], b=self.b[idx_err], 
-                                c1=self.c1[idx_err], x2=self.c2[idx_err], fix_mu=self.fix_mu)
-                tmp_z = tmp_sntn.ppf(p[idx_err]).flatten()
-                w[idx_err] = tmp_z
-                tmp_err_cdf = np.abs(tmp_sntn.cdf(tmp_z) - p)
-                idx_fail = tmp_err_cdf > tol_cdf
-                if idx_fail.any():
-                    warn(f'Even with the resolve, a total of {idx_fail.sum()} of the {len(idx_fail)} problem quantiles have still failed')
+                idx_err = err_cdf > tol_cdf
+                warn(f'Heads ups, a total of {idx_err.sum()} roots of {np.prod(idx_err.shape)} could not be solved, using random draws to approximate, adjust the n_samp argument as needed')
+                # There parameters have at least one erro
+                idx_err_params = np.any(idx_err, axis=0)
+                full_mask = np.zeros_like(w, dtype=bool)  # Initialize a mask of the same shape as w
+                full_mask[:, idx_err_params] = idx_err[:, idx_err_params]  # Apply error flags based on your conditions
+                tmp_sntn = _nts(mu1=self.mu1[idx_err_params], mu2=self.mu2[idx_err_params], 
+                                    tau21=self.tau21[idx_err_params], tau22=self.tau22[idx_err_params], 
+                                    a=self.a[idx_err_params], b=self.b[idx_err_params], 
+                                    c1=self.c1[idx_err_params], x2=self.c2[idx_err_params], fix_mu=self.fix_mu)
+                # Calculate the quantiles (some may be superfluous if there's no error)
+                w_err = np.quantile(tmp_sntn.rvs(n_samp, seed), orig_p, axis=0)
+                # Overwrite the relevant indices
+                w[full_mask] = w_err[full_mask[:, idx_err_params]]
             # Reshape for reverse_broadcast_from_k
+            w = w.reshape(w0.shape)
+        if method == 'rvs':
+            w = np.quantile(self.rvs(n_samp, seed), orig_p, axis=0)
             w = w.reshape(w0.shape)
         if method == 'approx':
             # Use the simple quantiles

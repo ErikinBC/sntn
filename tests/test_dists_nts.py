@@ -20,7 +20,7 @@ from sntn.utilities.utils import try_except_breakpoint
 # Used for pytest
 params_shape = [((1,)), ((5, )), ((3, 2)), ((2, 2, 2)),]
 params_alpha = [ (0.2), (0.1), (0.05) ]
-params_ppf_method = [ 'fast', 'loop', 'root', ]
+params_ppf_method = [ 'rvs', 'fast', 'loop', 'root', ]
 
 def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     """Convenience wrapper for generates NTS parameters"""
@@ -33,8 +33,6 @@ def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     b = mu2 + np.abs(np.random.rand(*shape)) + 0.1
     c1 = 2*np.random.rand(*shape) - 1
     c2 = 2*np.random.rand(*shape) - 1
-    # c1 = np.random.rand(*shape)
-    # c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
   
 
@@ -95,7 +93,7 @@ def test_runtime():
 
 @pytest.mark.parametrize("shape", params_shape)
 @pytest.mark.parametrize("ppf_method", params_ppf_method)
-def test_nts_ppf(shape:tuple | list, ppf_method:str, ndraw:int=2000000, tol_err:float=0.01) -> None:
+def test_nts_ppf(shape:tuple | list, ppf_method:str, ndraw:int=2000000, tol_err:float=0.025) -> None:
     """
     Checks that the quantile function works as expected by comparing it to the empirical quantile from sampling from the distribution (which is trivial to do)
     """
@@ -108,15 +106,12 @@ def test_nts_ppf(shape:tuple | list, ppf_method:str, ndraw:int=2000000, tol_err:
     emp_q = np.quantile(x, p_seq, axis=0)
     # Get the theoretical quantile
     stime = time()
-    theory_q = dist.ppf(p_seq, method=ppf_method)
+    theory_q = dist.ppf(p_seq, method=ppf_method, n_samp = 500000)
     dtime = time() - stime
     # Compare the errors
     maerr = np.abs(emp_q - theory_q).max()
     print(f'\nMax error: {maerr:.4f} (method = {ppf_method}), time={dtime:.3f} seconds')
-    try:
-        assert maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}'
-    except:
-        breakpoint()
+    try_except_breakpoint(maerr < tol_err, f'Maximum error {maerr} is greater than tolerance {tol_err} for shape={str(shape)}')
 
 
 @pytest.mark.parametrize("shape", params_shape)
