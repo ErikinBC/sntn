@@ -8,7 +8,7 @@ For package updates:
 # On some test conda env
 1) twine upload --repository-url https://test.pypi.org/legacy/ dist/sntn*
 2) pip uninstall sntn
-3) pip install -i https://test.pypi.org/simple/ sntn==X.X.X
+3) pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sntn==X.X.X
 # Upload to PYPI https://pypi.org/project/sntn/
 1) twine upload dist/sntn*
 2) pip uninstall sntn
