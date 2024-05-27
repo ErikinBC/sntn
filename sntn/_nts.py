@@ -101,8 +101,6 @@ class _nts():
         assert np.all(tau21 > 0), 'tau21 needs to be strictly greater than zero'
         assert np.all(tau22 > 0), 'tau22 needs to be strictly greater than zero'
         assert np.all(b > a), 'b needs to be greated than a'
-        # assert np.all(c1 > 0), 'c1 needs to be strictly greater than zero'
-        # assert np.all(c2 > 0), 'c2 needs to be strictly greater than zero'
         # Capture the original shape for later transformations
         self.param_shape = mu1.shape
         # Flatten parameters
@@ -254,6 +252,9 @@ class _nts():
             root_iter: int | None = None,
             use_approx_init: bool = True,
             clip: float = 30,
+            calc_rvs_init: bool = True,
+            seed: int = 1234,
+            n_samp: int = 100,
             **kwargs
         ) -> np.ndarray:
         """
@@ -273,6 +274,12 @@ class _nts():
             During the loop, at which iteration should the print occur (default==50)
         root_iter: int | None
             For method=='root', how much roots should we solve at the same time? This is useful for an array of quantiles. Note that the final count will be between: (k*(iter//k) ,self.k). Defaults to self.k if is None
+        calc_rvs_init: bool = True
+            Should RVS be used to calculate an initial guestimate?
+        seed: int = 1234
+            If RVS is used, what seed should be used?
+        n_samp: int = 100
+            How many samples are needed? Will be max(n_samp, len(p))
         use_approx_init: bool
             For the 'fast' method, should the 'approx' weights be initialized, or use the default from _fast_integrals? (default==True)
         clip: float
@@ -290,10 +297,18 @@ class _nts():
         valid_ppf_methods = ['fast', 'root', 'approx', 'loop']
         assert method in valid_ppf_methods, f'method must be one of {valid_ppf_methods}'
         # Make sure aligns with the parameters
-        p = np.atleast_1d(p)
-        num_p = len(p)
-        p = broadcast_to_k(p, self.param_shape)
-        w0 = self.c1*self.dist_Z1.ppf(p) + self.c2*self.dist_Z2.ppf(p)
+        orig_p = np.atleast_1d(p)
+        num_p = len(orig_p)
+        p = broadcast_to_k(orig_p, self.param_shape)
+        if use_approx_init and method == 'fast':  # Override the RVS
+            calc_rvs_init = False
+        if calc_rvs_init:
+            n_samp = max(n_samp, num_p)
+            W_sample = self.rvs(n_samp, seed)
+            w0 = np.quantile(W_sample, q=orig_p, axis=0)
+            w0 = broadcast_to_k(w0, self.param_shape)
+        else:
+            w0 = self.c1*self.dist_Z1.ppf(p) + self.c2*self.dist_Z2.ppf(p)
         assert p.shape == w0.shape, 'Expected ppf of dist_Z{12} to align with p shape'
         if method == 'fast':
             # Solve in the m(w) space
@@ -345,7 +360,6 @@ class _nts():
             # Loop over all solutions
             kwargs_root = get_valid_kwargs_func(root, **kwargs)
             solution = np.zeros(w0_flat.shape)
-            # breakpoint()
             for loop in range(n_loop):
                 # Break up into batches of at most 
                 idx_low, idx_high = iter_act*loop, iter_act*(loop+1)
@@ -374,10 +388,15 @@ class _nts():
                 for i in range(n):
                     w0_ij = w0[i,j]
                     p_ij = p[i,j]
-                    solution_ij = root(fun_j, w0_ij, args=(p_ij))
+                    solution_ij = root(fun=fun_j, x0=w0_ij, args=(p_ij))
                     merr_ij = np.max(np.abs(solution_ij.fun))
                     if merr_ij > tol_cdf:
-                        warn(f'Error {merr_ij:.5f} > {tol_cdf:.5f} at iteration i={i}, j={j}')
+                        warn(f'Error {merr_ij:.5f} > {tol_cdf:.5f} at iteration i={i}, j={j}, trying alternative solution')
+                        if j >= 1:
+                            # Try the previous solutions (works best when p_seq has a small space)
+                            solution_ij = root(fun=fun_j, x0=w[i,j-1], args=(p_ij))
+                            if np.max(np.abs(solution_ij.fun)) < tol_cdf:
+                                continue
                     w[i,j] = solution_ij.x[0]
                     if verbose:
                         ncomp = i*self.k + (j+1)
