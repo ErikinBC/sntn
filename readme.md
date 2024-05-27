@@ -24,18 +24,14 @@ $$
 
 # Installation
 
-See [pypi](https://pypi.org/project/sntn/). 
+See [pypi](https://pypi.org/project/sntn/). To check that the package compiled properly, please run `python3 -m sntn`.
 
 **Please make sure you have atleast python>=3.11!**
 
-1. numpy<=1.24.2
-2. pandas<=2.0.0
-3. scipy<=1.9.3
-4. glmnet<=2.2.1
-
-I recommend using `conda install -c conda-forge glmnet`. To check that the package compiled properly, please run `python3 -m sntn`.
+For custom development to the source code, you can try either: `conda env create -f env.yml`, or if anaconda give you environment solving errors, you can install tye main packages with `conda install -c conda-forge plotnine=0.10.1 glmnet=2.2.1 numpy=1.24.2 pandas=2.0.0 scikit-learn=1.2.2 setuptools=65.6.3 pip=23.0.1` followed by `twine==5.1.0 pytest==8.2.1`.
 
 <br>
+
 
 # main classes
 

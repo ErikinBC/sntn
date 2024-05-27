@@ -31,8 +31,10 @@ def gen_params(shape:tuple | list, seed:int | None) -> tuple:
     tau22 = np.exp(np.random.randn(*shape)) + 1
     a = mu2 - np.abs(np.random.randn(*shape)) - 0.1
     b = mu2 + np.abs(np.random.rand(*shape)) + 0.1
-    c1 = np.random.rand(*shape)
-    c2 = 1 - c1
+    c1 = 2*np.random.rand(*shape) - 1
+    c2 = 2*np.random.rand(*shape) - 1
+    # c1 = np.random.rand(*shape)
+    # c2 = 1 - c1
     return mu1, tau21, mu2, tau22, a, b, c1, c2
   
 

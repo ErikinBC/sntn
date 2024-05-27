@@ -101,8 +101,8 @@ class _nts():
         assert np.all(tau21 > 0), 'tau21 needs to be strictly greater than zero'
         assert np.all(tau22 > 0), 'tau22 needs to be strictly greater than zero'
         assert np.all(b > a), 'b needs to be greated than a'
-        assert np.all(c1 > 0), 'c1 needs to be strictly greater than zero'
-        assert np.all(c2 > 0), 'c2 needs to be strictly greater than zero'
+        # assert np.all(c1 > 0), 'c1 needs to be strictly greater than zero'
+        # assert np.all(c2 > 0), 'c2 needs to be strictly greater than zero'
         # Capture the original shape for later transformations
         self.param_shape = mu1.shape
         # Flatten parameters
