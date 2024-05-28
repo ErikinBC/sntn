@@ -331,14 +331,15 @@ class _nts():
             w = m_roots * sigma1 + theta1
             cdf_roots = bvn_cdf_diff(x1=m_roots, x2a=beta, x2b=alpha, rho=rho) / Zphi
             cdf_roots = np.clip(cdf_roots, 0, 1)
-            err_cdf = np.abs(cdf_roots - np.squeeze(p))
+            err_cdf = np.abs(cdf_roots - p)
             # Identify any failures
+            w = np.broadcast_to(w, err_cdf.shape).copy()
             if err_cdf.max() > tol_cdf:
                 idx_err = err_cdf > tol_cdf
                 warn(f'Heads ups, a total of {idx_err.sum()} roots of {np.prod(idx_err.shape)} could not be solved, using random draws to approximate, adjust the n_samp argument as needed')
                 # There parameters have at least one erro
                 idx_err_params = np.any(idx_err, axis=0)
-                full_mask = np.zeros_like(w, dtype=bool)  # Initialize a mask of the same shape as w
+                full_mask = np.zeros_like(p, dtype=bool)  # Initialize a mask of the same shape as w
                 full_mask[:, idx_err_params] = idx_err[:, idx_err_params]  # Apply error flags based on your conditions
                 tmp_sntn = _nts(mu1=self.mu1[idx_err_params], mu2=self.mu2[idx_err_params], 
                                     tau21=self.tau21[idx_err_params], tau22=self.tau22[idx_err_params], 
