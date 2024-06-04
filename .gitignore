@@ -11,3 +11,5 @@ build/
 dist/
 .vscode
 .pytest_cache/
+scratch.py
+scratch.ipynb
